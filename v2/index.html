@@ -1,0 +1,638 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<meta name="theme-color" content="#111111">
+<title>學生表現計分</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<style>
+:root{
+  --bg:#111; --card:#1c1c1e; --card2:#2c2c2e; --fg:#fff; --dim:#8e8e93;
+  --gold:#ffc531; --green:#30d158; --red:#ff453a; --blue:#0a84ff;
+  --pad:env(safe-area-inset-bottom,0px);
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;height:100%;overflow:hidden}
+body{
+  background:var(--bg);color:var(--fg);
+  font-family:-apple-system,"PingFang TC","Noto Sans TC",system-ui,sans-serif;
+  overscroll-behavior:none;
+  height:100dvh;display:flex;flex-direction:column;
+}
+button{font-family:inherit;color:inherit;border:0;background:none;font-size:1rem}
+.hide{display:none!important}
+
+/* ---------- top bar ---------- */
+header{
+  flex:none;z-index:20;background:rgba(17,17,17,.92);
+  backdrop-filter:blur(12px);padding:8px 10px 6px;
+  display:flex;gap:8px;align-items:center;
+}
+#pick{
+  flex:1;display:flex;gap:6px;align-items:center;justify-content:center;
+  background:var(--card);border-radius:12px;padding:10px 8px;font-weight:700;font-size:17px;
+  white-space:nowrap;overflow:hidden;min-width:0;
+}
+#pick #pickLabel{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#pick small{color:var(--dim);font-weight:500;font-size:12px;margin-left:4px}
+.iconbtn{background:var(--card);border-radius:12px;width:44px;height:44px;font-size:19px}
+
+/* ---------- grid ---------- */
+#grid{
+  flex:1;min-height:0;
+  display:grid;grid-template-columns:repeat(4,1fr);gap:6px;padding:4px 10px 6px;
+}
+.stu{
+  background:var(--card);border-radius:14px;padding:4px 3px;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  min-height:0;position:relative;transition:transform .06s;overflow:hidden;
+  border:2px solid transparent;
+}
+.stu:active{transform:scale(.94)}
+.stu .no{font-size:12px;color:var(--dim);font-weight:600;line-height:1}
+.stu .nm{font-size:12px;font-weight:600;line-height:1.1;
+  max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.stu .sc{font-size:clamp(20px,4.2vh,34px);font-weight:800;color:var(--gold);line-height:1.1}
+.stu .sc.zero{color:#48484a}
+.stu .today{
+  position:absolute;top:5px;right:6px;background:var(--green);color:#000;
+  font-size:11px;font-weight:800;border-radius:9px;padding:1px 5px;line-height:1.35;
+}
+.stu.g{border-color:var(--blue)}
+.stu .gp{position:absolute;top:5px;left:6px;font-size:11px;color:var(--blue);font-weight:800}
+.stu.sel{border-color:var(--green);background:#1e3a24}
+.stu.sel .no{color:var(--green)}
+#bottom.grouping button{background:var(--card2)}
+#bottom.grouping button.set{background:var(--green);color:#000}
+
+/* group row */
+#groups{flex:none;display:flex;gap:6px;overflow-x:auto;padding:0 10px 4px;scrollbar-width:none}
+#groups:empty{display:none}
+#groups::-webkit-scrollbar{display:none}
+#groups button{
+  background:var(--card2);border-radius:11px;padding:7px 14px;font-size:14px;
+  font-weight:700;white-space:nowrap;flex:none
+}
+#groups button.on{background:var(--blue)}
+
+/* ---------- bottom bar ---------- */
+#bottom{
+  flex:none;z-index:20;
+  background:rgba(17,17,17,.94);backdrop-filter:blur(12px);
+  padding:6px 10px calc(6px + var(--pad));display:flex;gap:8px;
+  border-top:1px solid #2c2c2e;
+}
+#bottom button{flex:1;background:var(--card);border-radius:13px;padding:10px 4px;font-size:14px;font-weight:700}
+#bottom button.pri{background:var(--blue)}
+
+/* ---------- sheet ---------- */
+.sheet{
+  position:fixed;inset:0;z-index:50;background:rgba(0,0,0,.55);
+  display:flex;align-items:flex-end;
+}
+.sheet>div{
+  background:#1c1c1e;width:100%;max-height:88vh;overflow:auto;
+  border-radius:20px 20px 0 0;padding:14px 14px calc(20px + var(--pad));
+  animation:up .18s ease-out;
+}
+@keyframes up{from{transform:translateY(40px);opacity:.5}to{transform:none;opacity:1}}
+.sheet h3{margin:2px 0 12px;font-size:19px;text-align:center}
+.sheet h3 span{color:var(--dim);font-size:14px;font-weight:500;display:block;margin-top:3px}
+.items{display:grid;grid-template-columns:1fr 1fr;gap:9px}
+.items button{
+  background:var(--card2);border-radius:15px;padding:15px 8px;font-size:16px;font-weight:700;
+  display:flex;flex-direction:column;gap:4px;align-items:center;text-align:center;
+}
+.items button small{color:var(--dim);font-size:11px;font-weight:600}
+.items button.neg{background:#3a2020}
+.items button.neg small{color:#ff9f9a}
+.closebar{margin-top:12px;display:flex;gap:8px}
+.closebar button{flex:1;background:var(--card2);border-radius:13px;padding:13px;font-weight:700}
+
+/* list rows */
+.row{display:flex;gap:10px;align-items:center;background:var(--card2);
+  border-radius:12px;padding:11px 12px;margin-bottom:7px;font-size:15px}
+.row b{flex:1;font-weight:600}
+.row .x{color:var(--red);font-weight:800;padding:0 6px}
+.row .tag{font-size:11px;color:var(--dim);background:#3a3a3c;border-radius:6px;padding:2px 6px}
+input,select,textarea{
+  background:#3a3a3c;border:0;border-radius:10px;color:#fff;padding:11px;font-size:16px;
+  width:100%;font-family:inherit
+}
+label{display:block;font-size:13px;color:var(--dim);margin:12px 0 5px;font-weight:600}
+.btn{background:var(--blue);border-radius:13px;padding:13px;font-weight:700;width:100%;margin-top:12px}
+.btn.gray{background:var(--card2)}
+.btn.danger{background:#3a2020;color:#ff9f9a}
+table{width:100%;border-collapse:collapse;font-size:14px}
+th,td{padding:7px 4px;text-align:left;border-bottom:1px solid #2c2c2e}
+th{color:var(--dim);font-size:12px}
+td.n{text-align:right;font-variant-numeric:tabular-nums}
+
+/* toast */
+#toast{
+  position:fixed;left:50%;bottom:calc(84px + var(--pad));transform:translateX(-50%);
+  background:rgba(48,209,88,.95);color:#000;font-weight:800;padding:10px 18px;
+  border-radius:20px;z-index:80;opacity:0;transition:opacity .18s;pointer-events:none;
+  font-size:15px;white-space:nowrap
+}
+#toast.on{opacity:1}
+#toast.bad{background:rgba(255,69,58,.95);color:#fff}
+.empty{color:var(--dim);text-align:center;padding:40px 20px;font-size:15px;line-height:1.7}
+</style>
+</head>
+<body>
+
+<header>
+  <button class="iconbtn" id="btnSetup">⚙️</button>
+  <button id="pick"><span id="pickLabel">—</span></button>
+  <button class="iconbtn" id="btnUndo">↩︎</button>
+</header>
+
+<div id="groups"></div>
+<div id="grid"></div>
+
+<div id="bottom">
+  <button id="btnBoard">🏆 本節</button>
+  <button id="btnMode" class="pri">👤 個人</button>
+  <button id="btnCalc">📊 成績</button>
+</div>
+
+<div id="toast"></div>
+
+<script>
+/* =========================================================
+   學生表現計分工具 — 本機優先版
+   資料全部存在這台裝置的 localStorage，不上傳任何伺服器。
+   ========================================================= */
+const LS='gradeapp.v1';
+const TAGS={
+  regular:{name:'平常成績',color:'#30d158'},
+  work:{name:'作品',color:'#ffc531'},
+  report:{name:'學習單/報告',color:'#0a84ff'},
+  reflect:{name:'心得省思',color:'#bf5af2'}
+};
+
+function defaultItems(){
+  return [
+    {id:id(),icon:'🙋',name:'發言',tag:'regular',v:1,group:false},
+    {id:id(),icon:'🤝',name:'協作',tag:'regular',v:1,group:false},
+    {id:id(),icon:'🔧',name:'實作進度',tag:'work',v:1,group:false},
+    {id:id(),icon:'🎯',name:'實測達標',tag:'work',v:1,group:false},
+    {id:id(),icon:'📄',name:'學習單',tag:'report',v:1,group:false},
+    {id:id(),icon:'💭',name:'反思',tag:'reflect',v:1,group:false},
+    {id:id(),icon:'📦',name:'器材歸位',tag:'regular',v:1,group:true},
+    {id:id(),icon:'⚠️',name:'未整理',tag:'regular',v:-1,group:true}
+  ];
+}
+function id(){return Math.random().toString(36).slice(2,9)}
+
+const DEFAULT={
+  courses:[
+    {id:'c1',name:'水陸兩用車',icon:'🚗',classes:['801','802','803','804'],items:defaultItems()},
+    {id:'c2',name:'無人機',icon:'🚁',classes:['901','902','903','904'],items:defaultItems()},
+    {id:'c3',name:'AI 科技',icon:'🤖',classes:['901','902'],items:defaultItems()}
+  ],
+  rosters:{},          // "901" -> [{no,name,group}]
+  records:[],          // {t,course,cls,no,item,name,tag,v,session}
+  cur:{course:'c1',cls:'801'},
+  size:20
+};
+
+let D=load();
+function load(){
+  try{const r=JSON.parse(localStorage.getItem(LS));if(r&&r.courses)return r}catch(e){}
+  return structuredClone(DEFAULT);
+}
+function save(){localStorage.setItem(LS,JSON.stringify(D))}
+
+const $=s=>document.querySelector(s);
+const course=()=>D.courses.find(c=>c.id===D.cur.course)||D.courses[0];
+function roster(cls){
+  if(!D.rosters[cls]){
+    D.rosters[cls]=Array.from({length:D.size},(_,i)=>({no:i+1,name:'',group:0}));
+  }
+  return D.rosters[cls];
+}
+/* 本節 = 同一天 + 同課程 + 同班 */
+function sessionKey(){
+  const d=new Date();
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}|${D.cur.course}|${D.cur.cls}`;
+}
+function recs(){return D.records.filter(r=>r.course===D.cur.course&&r.cls===D.cur.cls)}
+function total(no){return recs().filter(r=>r.no===no).reduce((s,r)=>s+r.v,0)}
+function todayCount(no){const k=sessionKey();return recs().filter(r=>r.no===no&&r.session===k).reduce((s,r)=>s+r.v,0)}
+
+function buzz(ms){try{navigator.vibrate&&navigator.vibrate(ms)}catch(e){}}
+let tt;
+function toast(msg,bad){
+  const t=$('#toast');t.textContent=msg;t.className='on'+(bad?' bad':'');
+  clearTimeout(tt);tt=setTimeout(()=>t.className='',1100);
+}
+
+/* ---------------- render ---------------- */
+let groupFilter=null;
+let grouping=false;              // 快速分組模式
+const sel=new Set();             // 分組模式下已選的座號
+
+function nextGroupNo(){
+  const used=new Set(roster(D.cur.cls).map(s=>s.group).filter(Boolean));
+  let n=1;while(used.has(n))n++;return n;
+}
+function enterGrouping(){grouping=true;sel.clear();render();toast('點座號選人，選好按「設為第 N 組」');}
+function exitGrouping(){grouping=false;sel.clear();render();}
+function assignGroup(){
+  if(!sel.size){toast('先點幾個人',1);return}
+  const g=nextGroupNo(),r=roster(D.cur.cls);
+  r.forEach(s=>{if(sel.has(s.no))s.group=g});
+  sel.clear();buzz(22);save();render();toast(`已設為第 ${g} 組`);
+}
+function clearGroups(){
+  if(!confirm(`清除 ${D.cur.cls} 的所有分組？計分記錄不受影響。`))return;
+  roster(D.cur.cls).forEach(s=>s.group=0);
+  sel.clear();groupFilter=null;save();render();toast('分組已清除',1);
+}
+
+function render(){
+  const c=course();
+  if(!c.classes.includes(D.cur.cls))D.cur.cls=c.classes[0];
+  $('#pickLabel').innerHTML=`${c.icon} ${c.name} ${D.cur.cls} <small>點此換班</small>`;
+
+  const r=roster(D.cur.cls);
+  const gs=[...new Set(r.map(s=>s.group).filter(Boolean))].sort((a,b)=>a-b);
+  const gw=$('#groups');
+  gw.innerHTML='';
+  if(gs.length){
+    gs.forEach(g=>{
+      const b=document.createElement('button');
+      b.textContent='第'+g+'組';
+      if(groupFilter===g)b.className='on';
+      b.onclick=()=>{groupFilter=(groupFilter===g?null:g);render();};
+      gw.appendChild(b);
+    });
+  }
+
+  const grid=$('#grid');grid.innerHTML='';
+  grid.style.gridTemplateRows=`repeat(${Math.ceil(r.length/4)},1fr)`;
+  r.forEach(s=>{
+    const el=document.createElement('button');
+    el.className='stu'+(grouping&&sel.has(s.no)?' sel':'')
+      +(!grouping&&groupFilter&&s.group===groupFilter?' g':'');
+    const t=total(s.no),td=todayCount(s.no);
+    el.innerHTML=
+      (s.group?`<div class="gp">${s.group}</div>`:'')+
+      (!grouping&&td?`<div class="today">+${td}</div>`:'')+
+      `<div class="no">${s.no}</div>`+
+      (grouping
+        ? `<div class="sc${sel.has(s.no)?'':' zero'}">${sel.has(s.no)?'✓':'·'}</div>`
+        : `<div class="sc${t?'':' zero'}">${t}</div>`)+
+      `<div class="nm">${s.name||''}</div>`;
+    el.onclick=()=>{
+      if(grouping){sel.has(s.no)?sel.delete(s.no):sel.add(s.no);buzz(10);render();}
+      else openItems([s.no]);
+    };
+    grid.appendChild(el);
+  });
+
+  const bb=$('#bottom');
+  bb.className=grouping?'grouping':'';
+  bb.innerHTML=grouping
+    ? `<button id="gClear">🧹 清除分組</button>
+       <button id="gSet" class="set">✓ 設為第 ${nextGroupNo()} 組（${sel.size}）</button>
+       <button id="gDone">完成</button>`
+    : `<button id="btnBoard">🏆 本節</button>
+       <button id="btnMode" class="pri">👤 個人</button>
+       <button id="btnCalc">📊 成績</button>`;
+  wireBottom();
+  save();
+}
+
+/* ---------------- 加分 ---------------- */
+function openItems(nos,gLabel){
+  const c=course();
+  const many=nos.length>1;
+  const items=c.items.filter(i=>many? true : !i.group);
+  sheet(`
+    <h3>${gLabel||('座號 '+nos[0]+(roster(D.cur.cls).find(s=>s.no===nos[0])?.name?' · '+roster(D.cur.cls).find(s=>s.no===nos[0]).name:''))}
+    <span>${c.icon} ${c.name} · ${D.cur.cls}</span></h3>
+    <div class="items">${items.map(i=>
+      `<button data-i="${i.id}" class="${i.v<0?'neg':''}">${i.icon} ${i.name}
+       <small>${TAGS[i.tag].name} ${i.v>0?'+':''}${i.v}</small></button>`).join('')}</div>
+    <div class="closebar"><button data-close>取消</button></div>
+  `,el=>{
+    el.querySelectorAll('[data-i]').forEach(b=>b.onclick=()=>{
+      const it=c.items.find(x=>x.id===b.dataset.i);
+      const k=sessionKey(),t=Date.now();
+      const rst=roster(D.cur.cls);
+      nos.forEach(no=>D.records.push({t,session:k,course:c.id,cls:D.cur.cls,no,
+        g:rst.find(s=>s.no===no)?.group||0,
+        item:it.id,name:it.name,tag:it.tag,v:it.v}));
+      buzz(it.v<0?[18,40,18]:22);
+      toast(`${it.icon} ${it.name} ${it.v>0?'+':''}${it.v}${many?' × '+nos.length+' 人':''}`,it.v<0);
+      close();render();
+    });
+  });
+}
+
+function undo(){
+  if(!D.records.length){toast('沒有可以撤銷的',1);return}
+  const last=D.records[D.records.length-1];
+  const batch=D.records.filter(r=>r.t===last.t);
+  D.records=D.records.filter(r=>r.t!==last.t);
+  buzz([12,30,12]);toast(`已撤銷 ${last.name} × ${batch.length}`,1);
+  save();render();
+}
+
+/* ---------------- 換班 ---------------- */
+function openPick(){
+  sheet(`<h3>選擇課堂</h3>`+D.courses.map(c=>
+    `<div style="margin-bottom:14px"><div style="font-weight:800;margin-bottom:7px">${c.icon} ${c.name}</div>
+     <div class="items">${c.classes.map(cl=>
+       `<button data-c="${c.id}" data-cl="${cl}" style="padding:14px">${cl}</button>`).join('')}</div></div>`
+  ).join('')+`<div class="closebar"><button data-close>取消</button></div>`,el=>{
+    el.querySelectorAll('[data-cl]').forEach(b=>b.onclick=()=>{
+      D.cur={course:b.dataset.c,cls:b.dataset.cl};groupFilter=null;close();render();
+    });
+  });
+}
+
+/* ---------------- 本節看板 ---------------- */
+function openBoard(){
+  const k=sessionKey(),r=roster(D.cur.cls);
+  const rows=r.map(s=>({s,v:recs().filter(x=>x.no===s.no&&x.session===k).reduce((a,b)=>a+b.v,0)}))
+              .filter(x=>x.v!==0).sort((a,b)=>b.v-a.v);
+  const sum=rows.reduce((a,b)=>a+Math.max(0,b.v),0);
+  sheet(`<h3>🏆 本節英雄榜<span>${course().icon} ${course().name} · ${D.cur.cls}</span></h3>
+    <div style="text-align:center;margin:6px 0 16px">
+      <div style="font-size:44px;font-weight:800;color:var(--gold)">${sum}</div>
+      <div style="color:var(--dim);font-size:14px">本節全班累積</div>
+    </div>
+    ${rows.length? rows.map((x,i)=>
+      `<div class="row"><span style="width:26px">${['🥇','🥈','🥉'][i]||(i+1)}</span>
+       <b>${x.s.no} ${x.s.name||''}</b>
+       <span style="color:var(--gold);font-weight:800;font-size:18px">${x.v>0?'+':''}${x.v}</span></div>`).join('')
+      : `<div class="empty">這節還沒有人被記到<br>去點幾個吧 😌</div>`}
+    <div class="closebar"><button data-close>關閉</button></div>`);
+}
+
+/* ---------------- 模式：個人 / 整組 ---------------- */
+function openGroupMode(){
+  const r=roster(D.cur.cls);
+  const gs=[...new Set(r.map(s=>s.group).filter(Boolean))].sort((a,b)=>a-b);
+  if(!gs.length){toast('還沒設定分組，去 ⚙️ 設定',1);return}
+  sheet(`<h3>整組加分<span>點一下，該組全員一起</span></h3>
+    <div class="items">${gs.map(g=>{
+      const n=r.filter(s=>s.group===g).length;
+      return `<button data-g="${g}" style="padding:18px">第 ${g} 組<small>${n} 人</small></button>`}).join('')}</div>
+    <div class="closebar"><button data-close>取消</button></div>`,el=>{
+    el.querySelectorAll('[data-g]').forEach(b=>b.onclick=()=>{
+      const g=+b.dataset.g,nos=r.filter(s=>s.group===g).map(s=>s.no);
+      close();openItems(nos,`第 ${g} 組（${nos.length} 人）`);
+    });
+  });
+}
+
+/* ---------------- 期末成績 ---------------- */
+function openCalc(){
+  const c=course(),r=roster(D.cur.cls),rs=recs();
+  const keys=Object.keys(TAGS);
+  const maxOf={};
+  keys.forEach(k=>{
+    maxOf[k]=Math.max(1,...r.map(s=>rs.filter(x=>x.no===s.no&&x.tag===k).reduce((a,b)=>a+b.v,0)));
+  });
+  const base=80,bonus=20;
+  const rows=r.map(s=>{
+    const o={s};
+    keys.forEach(k=>o[k]=rs.filter(x=>x.no===s.no&&x.tag===k).reduce((a,b)=>a+b.v,0));
+    o.regularScore=Math.min(100,Math.round(base+bonus*Math.max(0,o.regular)/maxOf.regular));
+    return o;
+  });
+  sheet(`<h3>📊 期末成績<span>${c.icon} ${c.name} · ${D.cur.cls}　平常＝${base} ＋ ${bonus}×(本人÷全班最高)</span></h3>
+    <table><thead><tr><th>座號</th><th>姓名</th>
+      <th class="n">平常</th><th class="n">作品</th><th class="n">報告</th><th class="n">省思</th></tr></thead>
+    <tbody>${rows.map(o=>`<tr><td>${o.s.no}</td><td>${o.s.name||''}</td>
+      <td class="n"><b>${o.regularScore}</b></td><td class="n">${o.work}</td>
+      <td class="n">${o.report}</td><td class="n">${o.reflect}</td></tr>`).join('')}</tbody></table>
+    <div style="color:var(--dim);font-size:12px;margin-top:10px;line-height:1.7">
+      平常成績已換算成 80–100 分（唯一可裁量的槓桿）。作品／報告／省思欄是原始累積次數，
+      要打成分數時走五等第：<b style="color:#fff">A95 / B90 / C85 / D80 / E75</b>，
+      水陸車微調 ±3、其他 ±4；有交起跳 75，未交才 0（公差／資源班缺項留白不計 0）。<br>
+      學期 ＝ 平常×0.3 ＋ 分組報告×0.2 ＋ 最終作品×0.3 ＋ 學習單×0.2</div>
+    <button class="btn" data-export>⬇️ 匯出這個班 CSV</button>
+    <button class="btn gray" data-exportall>⬇️ 匯出全部班級 CSV</button>
+    <div class="closebar"><button data-close>關閉</button></div>`,el=>{
+    el.querySelector('[data-export]').onclick=()=>exportCSV(false);
+    el.querySelector('[data-exportall]').onclick=()=>exportCSV(true);
+  });
+}
+
+function exportCSV(all){
+  const rows=[['時間','課程','班級','座號','姓名','項目','歸類','分值']];
+  D.records.filter(r=>all||(r.course===D.cur.course&&r.cls===D.cur.cls)).forEach(r=>{
+    const cn=D.courses.find(c=>c.id===r.course)?.name||r.course;
+    const nm=(D.rosters[r.cls]||[]).find(s=>s.no===r.no)?.name||'';
+    rows.push([new Date(r.t).toLocaleString('zh-TW'),cn,r.cls,r.no,nm,r.name,TAGS[r.tag].name,r.v]);
+  });
+  const csv='﻿'+rows.map(r=>r.map(x=>`"${String(x).replace(/"/g,'""')}"`).join(',')).join('\n');
+  const b=new Blob([csv],{type:'text/csv'});
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(b);
+  a.download=`計分_${all?'全部':D.cur.cls}_${new Date().toISOString().slice(0,10)}.csv`;
+  a.click();
+  toast('已匯出 '+(rows.length-1)+' 筆');
+}
+
+/* ---------------- 設定 ---------------- */
+function openSetup(){
+  sheet(`<h3>⚙️ 設定</h3>
+    <button class="btn" data-go="quick">✋ 快速分組（${D.cur.cls}）</button>
+    <button class="btn gray" data-go="roster">👥 名單（${D.cur.cls}）</button>
+    <button class="btn gray" data-go="items">🏷️ 加分項目（${course().name}）</button>
+    <button class="btn gray" data-go="courses">📚 課程與班級</button>
+    <button class="btn gray" data-go="data">💾 資料備份 / 還原</button>
+    <div class="closebar"><button data-close>關閉</button></div>`,el=>{
+    el.querySelectorAll('[data-go]').forEach(b=>b.onclick=()=>{
+      close();({quick:enterGrouping,roster:setupRoster,items:setupItems,
+        courses:setupCourses,data:setupData})[b.dataset.go]();
+    });
+  });
+}
+
+function setupRoster(){
+  const r=roster(D.cur.cls);
+  sheet(`<h3>👥 ${D.cur.cls} 名單<span>一行一位：姓名 或「姓名,組別」</span></h3>
+    <label>學生名單（依座號順序，留空只用座號）</label>
+    <textarea id="ta" rows="12" style="font-size:14px;line-height:1.6">${
+      r.map(s=>s.name?(s.name+(s.group?','+s.group:'')):'').join('\n')}</textarea>
+    <label>人數</label><input id="cnt" type="number" value="${r.length}" min="1" max="60">
+    <button class="btn" data-save>儲存</button>
+    <div class="closebar"><button data-close>取消</button></div>`,el=>{
+    el.querySelector('[data-save]').onclick=()=>{
+      const n=Math.max(1,Math.min(60,+el.querySelector('#cnt').value||25));
+      const lines=el.querySelector('#ta').value.split('\n');
+      D.rosters[D.cur.cls]=Array.from({length:n},(_,i)=>{
+        const [nm,g]=(lines[i]||'').split(',');
+        return {no:i+1,name:(nm||'').trim(),group:+((g||'').trim())||0};
+      });
+      close();render();toast('名單已儲存');
+    };
+  });
+}
+
+function setupItems(){
+  const c=course();
+  const draw=el=>{
+    el.querySelectorAll('[data-del]').forEach(b=>b.onclick=()=>{
+      c.items=c.items.filter(i=>i.id!==b.dataset.del);save();close();setupItems();
+    });
+    el.querySelector('[data-add]').onclick=()=>{
+      const q=s=>el.querySelector(s);
+      const nm=q('#inm').value.trim();if(!nm)return toast('要有名稱',1);
+      c.items.push({id:id(),icon:q('#iic').value.trim()||'⭐',name:nm,
+        tag:q('#itag').value,v:+q('#ival').value||1,group:q('#igrp').value==='1'});
+      save();close();setupItems();toast('已新增');
+    };
+  };
+  sheet(`<h3>🏷️ ${c.icon} ${c.name} 的加分項目<span>每個項目掛一個歸類，期末自動分堆</span></h3>
+    ${c.items.map(i=>`<div class="row"><span style="font-size:19px">${i.icon}</span>
+      <b>${i.name}${i.group?' <small style="color:var(--blue)">整組</small>':''}</b>
+      <span class="tag">${TAGS[i.tag].name}</span>
+      <span style="font-weight:800;color:${i.v<0?'var(--red)':'var(--gold)'}">${i.v>0?'+':''}${i.v}</span>
+      <span class="x" data-del="${i.id}">✕</span></div>`).join('')}
+    <label>新增項目</label>
+    <div style="display:flex;gap:7px"><input id="iic" placeholder="🙋" style="width:64px;text-align:center">
+      <input id="inm" placeholder="項目名稱"></div>
+    <div style="display:flex;gap:7px;margin-top:7px">
+      <select id="itag">${Object.entries(TAGS).map(([k,v])=>`<option value="${k}">${v.name}</option>`).join('')}</select>
+      <input id="ival" type="number" value="1" style="width:76px">
+      <select id="igrp"><option value="0">個人</option><option value="1">整組</option></select></div>
+    <button class="btn" data-add>新增</button>
+    <div class="closebar"><button data-close>關閉</button></div>`,draw);
+}
+
+function setupCourses(){
+  sheet(`<h3>📚 課程與班級</h3>
+    ${D.courses.map(c=>`<div class="row"><span style="font-size:19px">${c.icon}</span>
+      <b>${c.name}</b><span class="tag">${c.classes.join(' ')}</span></div>`).join('')}
+    <label>編輯（一行一個課程：圖示 名稱 = 班級,班級,…）</label>
+    <textarea id="tc" rows="6" style="font-size:14px;line-height:1.7">${
+      D.courses.map(c=>`${c.icon} ${c.name} = ${c.classes.join(',')}`).join('\n')}</textarea>
+    <button class="btn" data-save>儲存</button>
+    <div class="closebar"><button data-close>取消</button></div>`,el=>{
+    el.querySelector('[data-save]').onclick=()=>{
+      const lines=el.querySelector('#tc').value.split('\n').filter(x=>x.trim());
+      const next=lines.map((ln,idx)=>{
+        const [left,right]=ln.split('=');
+        const parts=left.trim().split(/\s+/);
+        const icon=parts.length>1?parts[0]:'📘';
+        const name=(parts.length>1?parts.slice(1).join(' '):parts[0]).trim();
+        const old=D.courses.find(c=>c.name===name);
+        return {id:old?old.id:'c'+id(),name,icon,
+          classes:(right||'').split(',').map(s=>s.trim()).filter(Boolean),
+          items:old?old.items:defaultItems()};
+      }).filter(c=>c.name&&c.classes.length);
+      if(!next.length)return toast('格式怪怪的',1);
+      D.courses=next;
+      if(!D.courses.find(c=>c.id===D.cur.course))D.cur={course:D.courses[0].id,cls:D.courses[0].classes[0]};
+      save();close();render();toast('已儲存');
+    };
+  });
+}
+
+function setupData(){
+  sheet(`<h3>💾 資料</h3>
+    <div class="row"><b>目前記錄</b><span>${D.records.length} 筆</span></div>
+    <div class="row"><b>班級數</b><span>${new Set(D.courses.flatMap(c=>c.classes)).size}</span></div>
+    <button class="btn" data-bk>⬇️ 下載完整備份（JSON）</button>
+    <label>貼上名單或備份內容</label>
+    <textarea id="rs" rows="4" placeholder='{"801":[{"no":1,"name":"…"}]} 或完整備份'></textarea>
+    <button class="btn" data-imp>👥 只匯入名單（不動計分）</button>
+    <button class="btn gray" data-rs>♻️ 完整還原（會覆蓋全部）</button>
+    <button class="btn danger" data-clr>⚠️ 清空所有計分記錄</button>
+    <div class="closebar"><button data-close>關閉</button></div>`,el=>{
+    el.querySelector('[data-bk]').onclick=()=>{
+      const a=document.createElement('a');
+      a.href=URL.createObjectURL(new Blob([JSON.stringify(D)],{type:'application/json'}));
+      a.download=`計分備份_${new Date().toISOString().slice(0,10)}.json`;a.click();toast('已下載');
+    };
+    el.querySelector('[data-imp]').onclick=()=>{
+      try{
+        let o=JSON.parse(el.querySelector('#rs').value);
+        if(o.rosters)o=o.rosters;
+        let n=0;
+        Object.entries(o).forEach(([cls,list])=>{
+          if(!Array.isArray(list))return;
+          const old=D.rosters[cls]||[];
+          D.rosters[cls]=list.map((s,i)=>({
+            no:s.no??i+1, name:(s.name||'').trim(),
+            group:s.group||old.find(x=>x.no===(s.no??i+1))?.group||0
+          }));
+          n++;
+        });
+        if(!n)throw 0;
+        save();close();render();toast(`已匯入 ${n} 個班級名單`);
+      }catch(e){toast('格式看不懂，要是 {"801":[…]} 這種',1)}
+    };
+    el.querySelector('[data-rs]').onclick=()=>{
+      try{const o=JSON.parse(el.querySelector('#rs').value);
+        if(!o.courses)throw 0;D={...structuredClone(DEFAULT),...o};save();close();render();toast('已還原');
+      }catch(e){toast('內容看起來不是備份檔',1)}
+    };
+    el.querySelector('[data-clr]').onclick=()=>{
+      if(!confirm('確定清空全部計分記錄？名單和項目會保留。'))return;
+      D.records=[];save();close();render();toast('已清空',1);
+    };
+  });
+}
+
+/* ---------------- sheet helper ---------------- */
+let sheetEl=null;
+function sheet(html,after){
+  close();
+  sheetEl=document.createElement('div');
+  sheetEl.className='sheet';
+  sheetEl.innerHTML='<div>'+html+'</div>';
+  sheetEl.onclick=e=>{if(e.target===sheetEl)close()};
+  sheetEl.querySelectorAll('[data-close]').forEach(b=>b.onclick=close);
+  document.body.appendChild(sheetEl);
+  after&&after(sheetEl);
+}
+function close(){if(sheetEl){sheetEl.remove();sheetEl=null}}
+
+/* ---------------- wire ---------------- */
+function wireBottom(){
+  const on=(id,fn)=>{const el=$('#'+id);if(el)el.onclick=fn};
+  on('btnBoard',openBoard); on('btnCalc',openCalc); on('btnMode',openGroupMode);
+  on('gSet',assignGroup); on('gClear',clearGroups); on('gDone',exitGrouping);
+}
+$('#pick').onclick=openPick;
+$('#btnUndo').onclick=()=>grouping?exitGrouping():undo();
+$('#btnSetup').onclick=openSetup;
+render();
+
+if('serviceWorker' in navigator){
+  navigator.serviceWorker.register('sw.js').catch(()=>{});
+}
+
+/* 安裝提示：Chrome 判定可安裝時才會觸發，藉此確認到底行不行 */
+let deferredPrompt=null;
+window.addEventListener('beforeinstallprompt',e=>{
+  e.preventDefault();deferredPrompt=e;
+  const b=document.createElement('button');
+  b.id='installBtn';b.textContent='⬇️ 安裝成 App';
+  b.style.cssText='position:fixed;left:50%;transform:translateX(-50%);bottom:calc(72px + var(--pad));'
+    +'z-index:90;background:var(--green);color:#000;font-weight:800;padding:12px 22px;'
+    +'border-radius:22px;font-size:15px;box-shadow:0 4px 16px rgba(0,0,0,.5)';
+  b.onclick=async()=>{b.remove();deferredPrompt.prompt();await deferredPrompt.userChoice;deferredPrompt=null;};
+  document.body.appendChild(b);
+});
+window.addEventListener('appinstalled',()=>{
+  const b=$('#installBtn');if(b)b.remove();toast('安裝完成 🎉');
+});
+</script>
+</body>
+</html>
