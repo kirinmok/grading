@@ -567,9 +567,17 @@ function setupData(){
         Object.entries(o).forEach(([cls,list])=>{
           if(!Array.isArray(list))return;
           const old=D.rosters[cls]||[];
-          D.rosters[cls]=list.map((s,i)=>({
-            no:s.no??i+1, name:(s.name||'').trim(),
-            group:s.group||old.find(x=>x.no===(s.no??i+1))?.group||0
+          // 依座號對位：有缺號也不會整排位移，缺的位子留空
+          const byNo=new Map();
+          list.forEach((s,i)=>{
+            const no=Number(s.no)||i+1;
+            byNo.set(no,typeof s==='string'?s:(s.name||'').trim());
+          });
+          const max=Math.max(...byNo.keys());
+          D.rosters[cls]=Array.from({length:max},(_,i)=>({
+            no:i+1,
+            name:byNo.get(i+1)||'',
+            group:old.find(x=>x.no===i+1)?.group||0
           }));
           n++;
         });
