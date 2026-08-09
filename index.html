@@ -546,15 +546,34 @@ function setupData(){
     <div class="row"><b>目前記錄</b><span>${D.records.length} 筆</span></div>
     <div class="row"><b>班級數</b><span>${new Set(D.courses.flatMap(c=>c.classes)).size}</span></div>
     <button class="btn" data-bk>⬇️ 下載完整備份（JSON）</button>
-    <label>還原：貼上備份內容</label>
-    <textarea id="rs" rows="4" placeholder='{"courses":…}'></textarea>
-    <button class="btn gray" data-rs>還原</button>
+    <label>貼上名單或備份內容</label>
+    <textarea id="rs" rows="4" placeholder='{"801":[{"no":1,"name":"…"}]} 或完整備份'></textarea>
+    <button class="btn" data-imp>👥 只匯入名單（不動計分）</button>
+    <button class="btn gray" data-rs>♻️ 完整還原（會覆蓋全部）</button>
     <button class="btn danger" data-clr>⚠️ 清空所有計分記錄</button>
     <div class="closebar"><button data-close>關閉</button></div>`,el=>{
     el.querySelector('[data-bk]').onclick=()=>{
       const a=document.createElement('a');
       a.href=URL.createObjectURL(new Blob([JSON.stringify(D)],{type:'application/json'}));
       a.download=`計分備份_${new Date().toISOString().slice(0,10)}.json`;a.click();toast('已下載');
+    };
+    el.querySelector('[data-imp]').onclick=()=>{
+      try{
+        let o=JSON.parse(el.querySelector('#rs').value);
+        if(o.rosters)o=o.rosters;
+        let n=0;
+        Object.entries(o).forEach(([cls,list])=>{
+          if(!Array.isArray(list))return;
+          const old=D.rosters[cls]||[];
+          D.rosters[cls]=list.map((s,i)=>({
+            no:s.no??i+1, name:(s.name||'').trim(),
+            group:s.group||old.find(x=>x.no===(s.no??i+1))?.group||0
+          }));
+          n++;
+        });
+        if(!n)throw 0;
+        save();close();render();toast(`已匯入 ${n} 個班級名單`);
+      }catch(e){toast('格式看不懂，要是 {"801":[…]} 這種',1)}
     };
     el.querySelector('[data-rs]').onclick=()=>{
       try{const o=JSON.parse(el.querySelector('#rs').value);
