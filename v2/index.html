@@ -464,21 +464,41 @@ function openSetup(){
 
 function setupRoster(){
   const r=roster(D.cur.cls);
-  sheet(`<h3>👥 ${D.cur.cls} 名單<span>一行一位：姓名 或「姓名,組別」</span></h3>
-    <label>學生名單（依座號順序，留空只用座號）</label>
-    <textarea id="ta" rows="12" style="font-size:14px;line-height:1.6">${
-      r.map(s=>s.name?(s.name+(s.group?','+s.group:'')):'').join('\n')}</textarea>
-    <label>人數</label><input id="cnt" type="number" value="${r.length}" min="1" max="60">
-    <button class="btn" data-save>儲存</button>
+  const cnt=r.filter(s=>s.name).length;
+  sheet(`<h3>👥 ${D.cur.cls} 名單
+      <span>座號 1–${r.length}　實際 ${cnt} 人　留空＝轉學／空號</span></h3>
+    ${r.map(s=>`<div class="row">
+        <span style="width:30px;color:var(--dim);font-weight:700">${s.no}</span>
+        <input data-nm="${s.no}" value="${s.name||''}" placeholder="（空號）"
+               style="flex:1;padding:8px;font-size:15px">
+        <input data-gp="${s.no}" value="${s.group||''}" placeholder="組"
+               inputmode="numeric" style="width:52px;padding:8px;text-align:center;font-size:15px">
+      </div>`).join('')}
+    <div style="display:flex;gap:8px;margin-top:10px">
+      <button class="btn" data-add style="margin:0">＋ 新增一位（${r.length+1} 號）</button>
+      <button class="btn gray" data-del style="margin:0;flex:0 0 40%">－ 刪掉最後一位</button>
+    </div>
+    <button class="btn" data-save>💾 儲存</button>
     <div class="closebar"><button data-close>取消</button></div>`,el=>{
+    const collect=()=>roster(D.cur.cls).map(s=>({
+      no:s.no,
+      name:(el.querySelector(`[data-nm="${s.no}"]`)?.value||'').trim(),
+      group:+(el.querySelector(`[data-gp="${s.no}"]`)?.value||0)||0
+    }));
     el.querySelector('[data-save]').onclick=()=>{
-      const n=Math.max(1,Math.min(60,+el.querySelector('#cnt').value||25));
-      const lines=el.querySelector('#ta').value.split('\n');
-      D.rosters[D.cur.cls]=Array.from({length:n},(_,i)=>{
-        const [nm,g]=(lines[i]||'').split(',');
-        return {no:i+1,name:(nm||'').trim(),group:+((g||'').trim())||0};
-      });
-      close();render();toast('名單已儲存');
+      D.rosters[D.cur.cls]=collect();save();close();render();toast('名單已儲存');
+    };
+    el.querySelector('[data-add]').onclick=()=>{
+      const cur=collect();
+      cur.push({no:cur.length+1,name:'',group:0});
+      D.rosters[D.cur.cls]=cur;save();close();setupRoster();
+    };
+    el.querySelector('[data-del]').onclick=()=>{
+      const cur=collect();
+      if(cur.length<=1)return toast('至少要留一位',1);
+      const last=cur[cur.length-1];
+      if(last.name&&!confirm(`刪掉 ${last.no} 號 ${last.name}？`))return;
+      cur.pop();D.rosters[D.cur.cls]=cur;save();close();setupRoster();
     };
   });
 }
