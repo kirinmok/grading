@@ -617,6 +617,22 @@ render();
 if('serviceWorker' in navigator){
   navigator.serviceWorker.register('sw.js').catch(()=>{});
 }
+
+/* 安裝提示：Chrome 判定可安裝時才會觸發，藉此確認到底行不行 */
+let deferredPrompt=null;
+window.addEventListener('beforeinstallprompt',e=>{
+  e.preventDefault();deferredPrompt=e;
+  const b=document.createElement('button');
+  b.id='installBtn';b.textContent='⬇️ 安裝成 App';
+  b.style.cssText='position:fixed;left:50%;transform:translateX(-50%);bottom:calc(72px + var(--pad));'
+    +'z-index:90;background:var(--green);color:#000;font-weight:800;padding:12px 22px;'
+    +'border-radius:22px;font-size:15px;box-shadow:0 4px 16px rgba(0,0,0,.5)';
+  b.onclick=async()=>{b.remove();deferredPrompt.prompt();await deferredPrompt.userChoice;deferredPrompt=null;};
+  document.body.appendChild(b);
+});
+window.addEventListener('appinstalled',()=>{
+  const b=$('#installBtn');if(b)b.remove();toast('安裝完成 🎉');
+});
 </script>
 </body>
 </html>
