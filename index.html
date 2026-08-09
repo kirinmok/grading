@@ -63,6 +63,10 @@ header{
 }
 .stu.g{border-color:var(--blue)}
 .stu .gp{position:absolute;top:5px;left:6px;font-size:11px;color:var(--blue);font-weight:800}
+.stu.sel{border-color:var(--green);background:#1e3a24}
+.stu.sel .no{color:var(--green)}
+#bottom.grouping button{background:var(--card2)}
+#bottom.grouping button.set{background:var(--green);color:#000}
 
 /* group row */
 #groups{flex:none;display:flex;gap:6px;overflow-x:auto;padding:0 10px 4px;scrollbar-width:none}
@@ -230,6 +234,27 @@ function toast(msg,bad){
 
 /* ---------------- render ---------------- */
 let groupFilter=null;
+let grouping=false;              // 快速分組模式
+const sel=new Set();             // 分組模式下已選的座號
+
+function nextGroupNo(){
+  const used=new Set(roster(D.cur.cls).map(s=>s.group).filter(Boolean));
+  let n=1;while(used.has(n))n++;return n;
+}
+function enterGrouping(){grouping=true;sel.clear();render();toast('點座號選人，選好按「設為第 N 組」');}
+function exitGrouping(){grouping=false;sel.clear();render();}
+function assignGroup(){
+  if(!sel.size){toast('先點幾個人',1);return}
+  const g=nextGroupNo(),r=roster(D.cur.cls);
+  r.forEach(s=>{if(sel.has(s.no))s.group=g});
+  sel.clear();buzz(22);save();render();toast(`已設為第 ${g} 組`);
+}
+function clearGroups(){
+  if(!confirm(`清除 ${D.cur.cls} 的所有分組？計分記錄不受影響。`))return;
+  roster(D.cur.cls).forEach(s=>s.group=0);
+  sel.clear();groupFilter=null;save();render();toast('分組已清除',1);
+}
+
 function render(){
   const c=course();
   if(!c.classes.includes(D.cur.cls))D.cur.cls=c.classes[0];
@@ -253,17 +278,34 @@ function render(){
   grid.style.gridTemplateRows=`repeat(${Math.ceil(r.length/4)},1fr)`;
   r.forEach(s=>{
     const el=document.createElement('button');
-    el.className='stu'+(groupFilter&&s.group===groupFilter?' g':'');
+    el.className='stu'+(grouping&&sel.has(s.no)?' sel':'')
+      +(!grouping&&groupFilter&&s.group===groupFilter?' g':'');
     const t=total(s.no),td=todayCount(s.no);
     el.innerHTML=
       (s.group?`<div class="gp">${s.group}</div>`:'')+
-      (td?`<div class="today">+${td}</div>`:'')+
+      (!grouping&&td?`<div class="today">+${td}</div>`:'')+
       `<div class="no">${s.no}</div>`+
-      `<div class="sc${t?'':' zero'}">${t}</div>`+
+      (grouping
+        ? `<div class="sc${sel.has(s.no)?'':' zero'}">${sel.has(s.no)?'✓':'·'}</div>`
+        : `<div class="sc${t?'':' zero'}">${t}</div>`)+
       `<div class="nm">${s.name||''}</div>`;
-    el.onclick=()=>openItems([s.no]);
+    el.onclick=()=>{
+      if(grouping){sel.has(s.no)?sel.delete(s.no):sel.add(s.no);buzz(10);render();}
+      else openItems([s.no]);
+    };
     grid.appendChild(el);
   });
+
+  const bb=$('#bottom');
+  bb.className=grouping?'grouping':'';
+  bb.innerHTML=grouping
+    ? `<button id="gClear">🧹 清除分組</button>
+       <button id="gSet" class="set">✓ 設為第 ${nextGroupNo()} 組（${sel.size}）</button>
+       <button id="gDone">完成</button>`
+    : `<button id="btnBoard">🏆 本節</button>
+       <button id="btnMode" class="pri">👤 個人</button>
+       <button id="btnCalc">📊 成績</button>`;
+  wireBottom();
   save();
 }
 
@@ -283,7 +325,9 @@ function openItems(nos,gLabel){
     el.querySelectorAll('[data-i]').forEach(b=>b.onclick=()=>{
       const it=c.items.find(x=>x.id===b.dataset.i);
       const k=sessionKey(),t=Date.now();
+      const rst=roster(D.cur.cls);
       nos.forEach(no=>D.records.push({t,session:k,course:c.id,cls:D.cur.cls,no,
+        g:rst.find(s=>s.no===no)?.group||0,
         item:it.id,name:it.name,tag:it.tag,v:it.v}));
       buzz(it.v<0?[18,40,18]:22);
       toast(`${it.icon} ${it.name} ${it.v>0?'+':''}${it.v}${many?' × '+nos.length+' 人':''}`,it.v<0);
@@ -403,13 +447,15 @@ function exportCSV(all){
 /* ---------------- 設定 ---------------- */
 function openSetup(){
   sheet(`<h3>⚙️ 設定</h3>
-    <button class="btn gray" data-go="roster">👥 名單與分組（${D.cur.cls}）</button>
+    <button class="btn" data-go="quick">✋ 快速分組（${D.cur.cls}）</button>
+    <button class="btn gray" data-go="roster">👥 名單（${D.cur.cls}）</button>
     <button class="btn gray" data-go="items">🏷️ 加分項目（${course().name}）</button>
     <button class="btn gray" data-go="courses">📚 課程與班級</button>
     <button class="btn gray" data-go="data">💾 資料備份 / 還原</button>
     <div class="closebar"><button data-close>關閉</button></div>`,el=>{
     el.querySelectorAll('[data-go]').forEach(b=>b.onclick=()=>{
-      close();({roster:setupRoster,items:setupItems,courses:setupCourses,data:setupData})[b.dataset.go]();
+      close();({quick:enterGrouping,roster:setupRoster,items:setupItems,
+        courses:setupCourses,data:setupData})[b.dataset.go]();
     });
   });
 }
@@ -537,12 +583,14 @@ function sheet(html,after){
 function close(){if(sheetEl){sheetEl.remove();sheetEl=null}}
 
 /* ---------------- wire ---------------- */
+function wireBottom(){
+  const on=(id,fn)=>{const el=$('#'+id);if(el)el.onclick=fn};
+  on('btnBoard',openBoard); on('btnCalc',openCalc); on('btnMode',openGroupMode);
+  on('gSet',assignGroup); on('gClear',clearGroups); on('gDone',exitGrouping);
+}
 $('#pick').onclick=openPick;
-$('#btnUndo').onclick=undo;
+$('#btnUndo').onclick=()=>grouping?exitGrouping():undo();
 $('#btnSetup').onclick=openSetup;
-$('#btnBoard').onclick=openBoard;
-$('#btnCalc').onclick=openCalc;
-$('#btnMode').onclick=openGroupMode;
 render();
 
 if('serviceWorker' in navigator){
