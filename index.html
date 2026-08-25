@@ -286,7 +286,8 @@ function render(){
       +(!grouping&&groupFilter&&s.group===groupFilter?' g':'');
     const t=total(s.no),td=todayCount(s.no);
     el.innerHTML=
-      (s.group?`<div class="gp">${s.group}</div>`:'')+
+      (s.from?`<div class="gp" style="color:var(--dim)">${s.from}</div>`
+             :(s.group?`<div class="gp">${s.group}</div>`:''))+
       (!grouping&&td?`<div class="today">+${td}</div>`:'')+
       `<div class="no">${s.no}</div>`+
       (grouping
@@ -487,8 +488,10 @@ function setupRoster(){
         <span style="width:30px;color:var(--dim);font-weight:700">${s.no}</span>
         <input data-nm="${s.no}" value="${s.name||''}" placeholder="（空號）"
                style="flex:1;padding:8px;font-size:15px">
+        <input data-fm="${s.no}" value="${s.from||''}" placeholder="原班"
+               style="width:64px;padding:8px;text-align:center;font-size:14px">
         <input data-gp="${s.no}" value="${s.group||''}" placeholder="組"
-               inputmode="numeric" style="width:52px;padding:8px;text-align:center;font-size:15px">
+               inputmode="numeric" style="width:46px;padding:8px;text-align:center;font-size:15px">
       </div>`).join('')}
     <div style="display:flex;gap:8px;margin-top:10px">
       <button class="btn" data-add style="margin:0">＋ 新增一位（${r.length+1} 號）</button>
@@ -499,6 +502,7 @@ function setupRoster(){
     const collect=()=>roster(D.cur.cls).map(s=>({
       no:s.no,
       name:(el.querySelector(`[data-nm="${s.no}"]`)?.value||'').trim(),
+      from:(el.querySelector(`[data-fm="${s.no}"]`)?.value||'').trim(),
       group:+(el.querySelector(`[data-gp="${s.no}"]`)?.value||0)||0
     }));
     el.querySelector('[data-save]').onclick=()=>{
@@ -506,7 +510,7 @@ function setupRoster(){
     };
     el.querySelector('[data-add]').onclick=()=>{
       const cur=collect();
-      cur.push({no:cur.length+1,name:'',group:0});
+      cur.push({no:cur.length+1,name:'',from:'',group:0});
       D.rosters[D.cur.cls]=cur;save();close();setupRoster();
     };
     el.querySelector('[data-del]').onclick=()=>{
@@ -622,7 +626,21 @@ function setupData(){
     el.querySelector('[data-imp]').onclick=()=>{
       try{
         let o=JSON.parse(el.querySelector('#rs').value);
-        if(o.rosters)o=o.rosters;
+        let nc=0;
+        // 一併帶課程時，同名課程只更新班級與四項名稱，保留既有項目與計分設定
+        if(Array.isArray(o.courses)){
+          o.courses.forEach(nx=>{
+            const old=D.courses.find(x=>x.name===nx.name);
+            if(old){ old.icon=nx.icon||old.icon; old.classes=nx.classes||old.classes;
+                     if(nx.tagNames)old.tagNames=nx.tagNames; }
+            else D.courses.push({id:'c'+id(),name:nx.name,icon:nx.icon||'📘',
+                   classes:nx.classes||[],items:defaultItems(),tagNames:nx.tagNames});
+            nc++;
+          });
+          if(!D.courses.find(x=>x.id===D.cur.course))
+            D.cur={course:D.courses[0].id,cls:D.courses[0].classes[0]};
+        }
+        if(o.rosters)o=o.rosters; else if(o.courses)o={...o,courses:undefined};
         let n=0;
         Object.entries(o).forEach(([cls,list])=>{
           if(!Array.isArray(list))return;
@@ -634,15 +652,19 @@ function setupData(){
             byNo.set(no,typeof s==='string'?s:(s.name||'').trim());
           });
           const max=Math.max(...byNo.keys());
+          const fromNo=new Map();
+          list.forEach((s,i)=>{if(s&&s.from)fromNo.set(Number(s.no)||i+1,String(s.from))});
           D.rosters[cls]=Array.from({length:max},(_,i)=>({
             no:i+1,
             name:byNo.get(i+1)||'',
+            from:fromNo.get(i+1)||old.find(x=>x.no===i+1)?.from||'',
             group:old.find(x=>x.no===i+1)?.group||0
           }));
           n++;
         });
-        if(!n)throw 0;
-        save();close();render();toast(`已匯入 ${n} 個班級名單`);
+        if(!n&&!nc)throw 0;
+        save();close();render();
+        toast(`已匯入 ${n} 個班級${nc?`、${nc} 個課程`:''}`);
       }catch(e){toast('格式看不懂，要是 {"801":[…]} 這種',1)}
     };
     el.querySelector('[data-rs]').onclick=()=>{
