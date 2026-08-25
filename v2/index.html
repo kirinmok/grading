@@ -176,6 +176,8 @@ const TAGS={
   report:{name:'學習單/報告',color:'#0a84ff'},
   reflect:{name:'心得省思',color:'#bf5af2'}
 };
+/* 每個課程可以自己命名這四格（社團的四項跟正課不一樣） */
+function tagName(k,c){return (c||course())?.tagNames?.[k]||TAGS[k].name;}
 
 function defaultItems(){
   return [
@@ -321,7 +323,7 @@ function openItems(nos,gLabel){
     <span>${c.icon} ${c.name} · ${D.cur.cls}</span></h3>
     <div class="items">${items.map(i=>
       `<button data-i="${i.id}" class="${i.v<0?'neg':''}">${i.icon} ${i.name}
-       <small>${TAGS[i.tag].name} ${i.v>0?'+':''}${i.v}</small></button>`).join('')}</div>
+       <small>${tagName(i.tag,c)} ${i.v>0?'+':''}${i.v}</small></button>`).join('')}</div>
     <div class="closebar"><button data-close>取消</button></div>
   `,el=>{
     el.querySelectorAll('[data-i]').forEach(b=>b.onclick=()=>{
@@ -413,7 +415,7 @@ function openCalc(){
   });
   sheet(`<h3>📊 期末成績<span>${c.icon} ${c.name} · ${D.cur.cls}　平常＝${base} ＋ ${bonus}×(本人÷全班最高)</span></h3>
     <table><thead><tr><th>座號</th><th>姓名</th>
-      <th class="n">平常</th><th class="n">作品</th><th class="n">報告</th><th class="n">省思</th></tr></thead>
+      ${keys.map(k=>`<th class="n">${tagName(k,c)}</th>`).join('')}</tr></thead>
     <tbody>${rows.map(o=>`<tr><td>${o.s.no}</td><td>${o.s.name||''}</td>
       <td class="n"><b>${o.regularScore}</b></td><td class="n">${o.work}</td>
       <td class="n">${o.report}</td><td class="n">${o.reflect}</td></tr>`).join('')}</tbody></table>
@@ -435,7 +437,7 @@ function exportCSV(all){
   D.records.filter(r=>all||(r.course===D.cur.course&&r.cls===D.cur.cls)).forEach(r=>{
     const cn=D.courses.find(c=>c.id===r.course)?.name||r.course;
     const nm=(D.rosters[r.cls]||[]).find(s=>s.no===r.no)?.name||'';
-    rows.push([new Date(r.t).toLocaleString('zh-TW'),cn,r.cls,r.no,nm,r.name,TAGS[r.tag].name,r.v]);
+    rows.push([new Date(r.t).toLocaleString('zh-TW'),cn,r.cls,r.no,nm,r.name,tagName(r.tag,D.courses.find(c=>c.id===r.course)),r.v]);
   });
   const csv='﻿'+rows.map(r=>r.map(x=>`"${String(x).replace(/"/g,'""')}"`).join(',')).join('\n');
   const b=new Blob([csv],{type:'text/csv'});
@@ -452,12 +454,13 @@ function openSetup(){
     <button class="btn" data-go="quick">✋ 快速分組（${D.cur.cls}）</button>
     <button class="btn gray" data-go="roster">👥 名單（${D.cur.cls}）</button>
     <button class="btn gray" data-go="items">🏷️ 加分項目（${course().name}）</button>
+    <button class="btn gray" data-go="tags">🗂️ 四項成績名稱（${course().name}）</button>
     <button class="btn gray" data-go="courses">📚 課程與班級</button>
     <button class="btn gray" data-go="data">💾 資料備份 / 還原</button>
     <div class="closebar"><button data-close>關閉</button></div>`,el=>{
     el.querySelectorAll('[data-go]').forEach(b=>b.onclick=()=>{
       close();({quick:enterGrouping,roster:setupRoster,items:setupItems,
-        courses:setupCourses,data:setupData})[b.dataset.go]();
+        tags:setupTags,courses:setupCourses,data:setupData})[b.dataset.go]();
     });
   });
 }
@@ -520,18 +523,41 @@ function setupItems(){
   sheet(`<h3>🏷️ ${c.icon} ${c.name} 的加分項目<span>每個項目掛一個歸類，期末自動分堆</span></h3>
     ${c.items.map(i=>`<div class="row"><span style="font-size:19px">${i.icon}</span>
       <b>${i.name}${i.group?' <small style="color:var(--blue)">整組</small>':''}</b>
-      <span class="tag">${TAGS[i.tag].name}</span>
+      <span class="tag">${tagName(i.tag,c)}</span>
       <span style="font-weight:800;color:${i.v<0?'var(--red)':'var(--gold)'}">${i.v>0?'+':''}${i.v}</span>
       <span class="x" data-del="${i.id}">✕</span></div>`).join('')}
     <label>新增項目</label>
     <div style="display:flex;gap:7px"><input id="iic" placeholder="🙋" style="width:64px;text-align:center">
       <input id="inm" placeholder="項目名稱"></div>
     <div style="display:flex;gap:7px;margin-top:7px">
-      <select id="itag">${Object.entries(TAGS).map(([k,v])=>`<option value="${k}">${v.name}</option>`).join('')}</select>
+      <select id="itag">${Object.keys(TAGS).map(k=>`<option value="${k}">${tagName(k,c)}</option>`).join('')}</select>
       <input id="ival" type="number" value="1" style="width:76px">
       <select id="igrp"><option value="0">個人</option><option value="1">整組</option></select></div>
     <button class="btn" data-add>新增</button>
     <div class="closebar"><button data-close>關閉</button></div>`,draw);
+}
+
+function setupTags(){
+  const c=course(),keys=Object.keys(TAGS);
+  sheet(`<h3>🗂️ ${c.icon} ${c.name} 的四項成績
+      <span>期末就是交這四個數字，名稱改成你學校要的講法</span></h3>
+    ${keys.map(k=>`<div class="row">
+        <span style="width:14px;height:14px;border-radius:4px;background:${TAGS[k].color}"></span>
+        <input data-tg="${k}" value="${tagName(k,c)}" style="flex:1;padding:8px;font-size:15px">
+      </div>`).join('')}
+    <button class="btn" data-save>💾 儲存</button>
+    <div style="color:var(--dim);font-size:12px;margin-top:10px;line-height:1.6">
+      改名不會動到已經打的分數，只是換顯示的標籤。</div>
+    <div class="closebar"><button data-close>取消</button></div>`,el=>{
+    el.querySelector('[data-save]').onclick=()=>{
+      c.tagNames={};
+      keys.forEach(k=>{
+        const v=(el.querySelector(`[data-tg="${k}"]`)?.value||'').trim();
+        if(v&&v!==TAGS[k].name)c.tagNames[k]=v;
+      });
+      save();close();render();toast('已更名');
+    };
+  });
 }
 
 function setupCourses(){
@@ -553,7 +579,8 @@ function setupCourses(){
         const old=D.courses.find(c=>c.name===name);
         return {id:old?old.id:'c'+id(),name,icon,
           classes:(right||'').split(',').map(s=>s.trim()).filter(Boolean),
-          items:old?old.items:defaultItems()};
+          items:old?old.items:defaultItems(),
+          tagNames:old?old.tagNames:undefined};
       }).filter(c=>c.name&&c.classes.length);
       if(!next.length)return toast('格式怪怪的',1);
       D.courses=next;
