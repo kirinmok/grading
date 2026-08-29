@@ -334,10 +334,75 @@ function openItems(nos,gLabel){
       nos.forEach(no=>D.records.push({t,session:k,course:c.id,cls:D.cur.cls,no,
         g:rst.find(s=>s.no===no)?.group||0,
         item:it.id,name:it.name,tag:it.tag,v:it.v}));
-      buzz(it.v<0?[18,40,18]:22);
+      buzz(it.v<0?[18,40,18]:22);scheduleSync();
       toast(`${it.icon} ${it.name} ${it.v>0?'+':''}${it.v}${many?' × '+nos.length+' 人':''}`,it.v<0);
       close();render();
     });
+  });
+}
+
+/* ---------------- 雲端同步（背景，不擋操作） ----------------
+   設計原則：按下去先寫本機，同步是之後的事。同步失敗就留在佇列，
+   下次有網路自己補送。網址只存在這台手機，不進程式碼。 */
+let syncing=false;
+function pending(){return D.records.filter(r=>!r.sy).length}
+
+async function flushSync(silent){
+  const url=D.sync&&D.sync.url;
+  if(!url){if(!silent)toast('還沒設定同步網址',1);return}
+  if(syncing)return;
+  const todo=D.records.filter(r=>!r.sy);
+  if(!todo.length){if(!silent)toast('已經全部同步了');return}
+  syncing=true;
+  try{
+    const rows=todo.map(r=>{
+      const c=D.courses.find(x=>x.id===r.course);
+      const s=(D.rosters[r.cls]||[]).find(x=>x.no===r.no)||{};
+      return [new Date(r.t).toISOString(), c?c.name:r.course, r.cls, r.no,
+              s.name||'', s.from||'', r.name, tagName(r.tag,c), r.v, r.g||'', r.t];
+    });
+    const res=await fetch(url,{method:'POST',headers:{'Content-Type':'text/plain'},
+      body:JSON.stringify({rows})});
+    const out=await res.json();
+    if(!out||out.ok!==true)throw new Error(out&&out.error||'伺服器沒說 ok');
+    todo.forEach(r=>r.sy=1);
+    D.sync.lastAt=Date.now();
+    save();
+    if(!silent)toast(`已同步 ${rows.length} 筆`);
+  }catch(e){
+    if(!silent)toast('同步失敗：'+String(e.message||e).slice(0,30),1);
+  }finally{syncing=false;render()}
+}
+/* 加分後延遲送出，避免連點時一直打網路 */
+let syncTimer=null;
+function scheduleSync(){
+  if(!(D.sync&&D.sync.url))return;
+  clearTimeout(syncTimer);
+  syncTimer=setTimeout(()=>flushSync(true),8000);
+}
+window.addEventListener('online',()=>flushSync(true));
+
+function setupSync(){
+  const s=D.sync||{};
+  sheet(`<h3>☁️ 雲端同步<span>加分先存手機，背景才送出，不會拖慢上課</span></h3>
+    <div class="row"><b>待同步</b><span style="font-weight:800;color:${pending()?'var(--gold)':'var(--green)'}">${pending()} 筆</span></div>
+    <div class="row"><b>上次同步</b><span>${s.lastAt?new Date(s.lastAt).toLocaleString('zh-TW'):'從未'}</span></div>
+    <label>Apps Script 網址（貼一次就好，只存在這台手機）</label>
+    <textarea id="su" rows="3" placeholder="https://script.google.com/macros/s/…/exec">${s.url||''}</textarea>
+    <button class="btn" data-save>💾 儲存網址</button>
+    <button class="btn gray" data-now>⬆️ 立即同步</button>
+    <button class="btn gray" data-all>🔁 全部重新上傳（會重複，慎用）</button>
+    <div class="closebar"><button data-close>關閉</button></div>`,el=>{
+    el.querySelector('[data-save]').onclick=()=>{
+      const u=el.querySelector('#su').value.trim();
+      if(u&&!/^https:\/\/script\.google\.com\//.test(u))return toast('要是 script.google.com 的網址',1);
+      D.sync={...(D.sync||{}),url:u};save();close();toast(u?'網址已存':'已清除網址');
+    };
+    el.querySelector('[data-now]').onclick=()=>{close();flushSync(false)};
+    el.querySelector('[data-all]').onclick=()=>{
+      if(!confirm('把全部記錄重新上傳一次？試算表會出現重複資料。'))return;
+      D.records.forEach(r=>delete r.sy);save();close();flushSync(false);
+    };
   });
 }
 
@@ -470,11 +535,12 @@ function openSetup(){
     <button class="btn gray" data-go="items">🏷️ 加分項目（${course().name}）</button>
     <button class="btn gray" data-go="tags">🗂️ 四項成績名稱（${course().name}）</button>
     <button class="btn gray" data-go="courses">📚 課程與班級</button>
+    <button class="btn gray" data-go="sync">☁️ 雲端同步${(D.sync&&D.sync.url)?`（待送 ${pending()}）`:'（未設定）'}</button>
     <button class="btn gray" data-go="data">💾 資料備份 / 還原</button>
     <div class="closebar"><button data-close>關閉</button></div>`,el=>{
     el.querySelectorAll('[data-go]').forEach(b=>b.onclick=()=>{
       close();({quick:enterGrouping,roster:setupRoster,items:setupItems,
-        tags:setupTags,courses:setupCourses,data:setupData})[b.dataset.go]();
+        tags:setupTags,courses:setupCourses,sync:setupSync,data:setupData})[b.dataset.go]();
     });
   });
 }
