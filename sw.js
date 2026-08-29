@@ -1,7 +1,7 @@
 /* 離線快取
    程式檔（HTML/JS/manifest）走「網路優先」：有網路一定拿到最新版，
    沒網路才回快取。圖示等靜態檔走「快取優先」。 */
-const CACHE = 'grade-v11';
+const CACHE = 'grade-v1.3';
 const FILES = ['./', './index.html', './manifest.webmanifest',
   './icon-192.png', './icon-512.png', './icon-maskable.png'];
 

@@ -169,6 +169,8 @@ td.n{text-align:right;font-variant-numeric:tabular-nums}
    學生表現計分工具 — 本機優先版
    資料全部存在這台裝置的 localStorage，不上傳任何伺服器。
    ========================================================= */
+const VERSION='1.3';
+const BUILT='2026-08-29';
 const LS='gradeapp.v1';
 const TAGS={
   regular:{name:'平常成績',color:'#30d158'},
@@ -586,8 +588,25 @@ function exportCSV(all){
 }
 
 /* ---------------- 設定 ---------------- */
+async function checkUpdate(){
+  toast('查詢中…');
+  try{
+    const r=await fetch(location.href.split('?')[0]+'?cb='+Date.now(),{cache:'no-store'});
+    const t=await r.text();
+    const m=t.match(/const VERSION='([^']+)'/), b=t.match(/const BUILT='([^']+)'/);
+    if(!m)throw new Error('讀不到線上版本');
+    if(m[1]===VERSION){toast(`已是最新 v${VERSION}`);return}
+    if(!confirm(`線上有新版 v${m[1]}（${b?b[1]:''}），現在更新？\n你的資料不會受影響。`))return;
+    const regs=await navigator.serviceWorker.getRegistrations();
+    for(const g of regs)await g.unregister();
+    for(const k of await caches.keys())await caches.delete(k);
+    location.replace(location.href.split('?')[0]+'?v='+Date.now());
+  }catch(e){toast('查不到：'+String(e.message||e).slice(0,26),1)}
+}
+
 function openSetup(){
-  sheet(`<h3>⚙️ 設定</h3>
+  sheet(`<h3>⚙️ 設定<span>版本 v${VERSION}　${BUILT}</span></h3>
+    <button class="btn gray" data-go="upd">🔄 檢查更新</button>
     <button class="btn" data-go="quick">✋ 快速分組（${D.cur.cls}）</button>
     <button class="btn gray" data-go="roster">👥 名單（${D.cur.cls}）</button>
     <button class="btn gray" data-go="items">🏷️ 加分項目（${course().name}）</button>
@@ -597,6 +616,7 @@ function openSetup(){
     <button class="btn gray" data-go="data">💾 資料備份 / 還原</button>
     <div class="closebar"><button data-close>關閉</button></div>`,el=>{
     el.querySelectorAll('[data-go]').forEach(b=>b.onclick=()=>{
+      if(b.dataset.go==='upd'){close();checkUpdate();return}
       close();({quick:enterGrouping,roster:setupRoster,items:setupItems,
         tags:setupTags,courses:setupCourses,sync:setupSync,data:setupData})[b.dataset.go]();
     });
