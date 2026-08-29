@@ -169,7 +169,7 @@ td.n{text-align:right;font-variant-numeric:tabular-nums}
    學生表現計分工具 — 本機優先版
    資料全部存在這台裝置的 localStorage，不上傳任何伺服器。
    ========================================================= */
-const VERSION='1.3';
+const VERSION='1.4';
 const BUILT='2026-08-29';
 const LS='gradeapp.v1';
 const TAGS={
@@ -209,8 +209,30 @@ const DEFAULT={
 
 let D=load();
 function load(){
-  try{const r=JSON.parse(localStorage.getItem(LS));if(r&&r.courses)return r}catch(e){}
+  try{
+    const r=JSON.parse(localStorage.getItem(LS));
+    if(r&&r.courses)return migrate(r);
+  }catch(e){}
   return structuredClone(DEFAULT);
+}
+/* v1.4：分組從「學生身上」搬到「課程×班級」。
+   舊資料只有一套分組，搬到該班第一個有記錄的課程，其餘課程留空。 */
+function migrate(r){
+  if(r.groupsMigrated)return r;
+  r.groups=r.groups||{};
+  Object.entries(r.rosters||{}).forEach(([cls,list])=>{
+    const has=list.some(x=>x.group);
+    if(!has)return;
+    const owner=(r.courses.find(c=>(c.classes||[]).includes(cls)&&
+        (r.records||[]).some(x=>x.course===c.id&&x.cls===cls))
+      ||r.courses.find(c=>(c.classes||[]).includes(cls)));
+    if(!owner)return;
+    r.groups[owner.id]=r.groups[owner.id]||{};
+    const m=r.groups[owner.id][cls]={};
+    list.forEach(x=>{if(x.group)m[x.no]=x.group});
+  });
+  r.groupsMigrated=1;
+  return r;
 }
 function save(){localStorage.setItem(LS,JSON.stringify(D))}
 
@@ -243,21 +265,33 @@ let groupFilter=null;
 let grouping=false;              // 快速分組模式
 const sel=new Set();             // 分組模式下已選的座號
 
+/* 分組跟著「課程×班級」走：同一個班在不同課程可以有各自的分組 */
+function gmap(cid,cls){
+  D.groups=D.groups||{};
+  const c=cid||D.cur.course, k=cls||D.cur.cls;
+  D.groups[c]=D.groups[c]||{};
+  D.groups[c][k]=D.groups[c][k]||{};
+  return D.groups[c][k];
+}
+function gOf(no){return gmap()[no]||0}
+function setG(no,g){const m=gmap();if(g)m[no]=g;else delete m[no];}
+
 function nextGroupNo(){
-  const used=new Set(roster(D.cur.cls).map(s=>s.group).filter(Boolean));
+  const used=new Set(Object.values(gmap()).filter(Boolean));
   let n=1;while(used.has(n))n++;return n;
 }
-function enterGrouping(){grouping=true;sel.clear();render();toast('點座號選人，選好按「設為第 N 組」');}
+function enterGrouping(){grouping=true;sel.clear();render();
+  toast(`分「${course().name}」的組，不影響其他課`);}
 function exitGrouping(){grouping=false;sel.clear();render();}
 function assignGroup(){
   if(!sel.size){toast('先點幾個人',1);return}
-  const g=nextGroupNo(),r=roster(D.cur.cls);
-  r.forEach(s=>{if(sel.has(s.no))s.group=g});
+  const g=nextGroupNo();
+  sel.forEach(no=>setG(no,g));
   sel.clear();buzz(22);save();render();toast(`已設為第 ${g} 組`);
 }
 function clearGroups(){
   if(!confirm(`清除 ${D.cur.cls} 的所有分組？計分記錄不受影響。`))return;
-  roster(D.cur.cls).forEach(s=>s.group=0);
+  D.groups[D.cur.course][D.cur.cls]={};
   sel.clear();groupFilter=null;save();render();toast('分組已清除',1);
 }
 
@@ -269,7 +303,7 @@ function render(){
     : `${c.icon} ${c.name} ${D.cur.cls} <small>點此換班</small>`;
 
   const r=roster(D.cur.cls);
-  const gs=[...new Set(r.map(s=>s.group).filter(Boolean))].sort((a,b)=>a-b);
+  const gs=[...new Set(Object.values(gmap()).filter(Boolean))].sort((a,b)=>a-b);
   const gw=$('#groups');
   gw.innerHTML='';
   if(gs.length){
@@ -292,11 +326,11 @@ function render(){
   r.forEach(s=>{
     const el=document.createElement('button');
     el.className='stu'+(grouping&&sel.has(s.no)?' sel':'')
-      +(!grouping&&groupFilter&&s.group===groupFilter?' g':'');
+      +(!grouping&&groupFilter&&gOf(s.no)===groupFilter?' g':'');
     const t=total(s.no),td=todayCount(s.no);
     el.innerHTML=
       (s.from?`<div class="gp" style="color:var(--dim)">${s.from}</div>`
-             :(s.group?`<div class="gp">${s.group}</div>`:''))+
+             :(gOf(s.no)?`<div class="gp">${gOf(s.no)}</div>`:''))+
       (!grouping&&td?`<div class="today">+${td}</div>`:'')+
       `<div class="no">${s.no}</div>`+
       (grouping
@@ -351,7 +385,7 @@ function openItems(nos,gLabel){
       const k=sessionKey(),t=Date.now();
       const rst=roster(D.cur.cls);
       nos.forEach(no=>D.records.push({t,session:k,course:c.id,cls:D.cur.cls,no,
-        g:rst.find(s=>s.no===no)?.group||0,
+        g:gOf(no)||0,
         item:it.id,name:it.name,tag:it.tag,v:it.v}));
       buzz(it.v<0?[18,40,18]:22);scheduleSync();
       toast(`${it.icon} ${it.name} ${it.v>0?'+':''}${it.v}${many?' × '+nos.length+' 人':''}`,it.v<0);
@@ -510,15 +544,15 @@ function openBoard(){
 /* ---------------- 模式：個人 / 整組 ---------------- */
 function openGroupMode(){
   const r=roster(D.cur.cls);
-  const gs=[...new Set(r.map(s=>s.group).filter(Boolean))].sort((a,b)=>a-b);
-  if(!gs.length){toast('還沒設定分組，去 ⚙️ 設定',1);return}
+  const gs=[...new Set(Object.values(gmap()).filter(Boolean))].sort((a,b)=>a-b);
+  if(!gs.length){toast('這門課還沒分組，⚙️ → 快速分組',1);return}
   sheet(`<h3>整組加分<span>點一下，該組全員一起</span></h3>
     <div class="items">${gs.map(g=>{
-      const n=r.filter(s=>s.group===g).length;
+      const n=r.filter(s=>gOf(s.no)===g).length;
       return `<button data-g="${g}" style="padding:18px">第 ${g} 組<small>${n} 人</small></button>`}).join('')}</div>
     <div class="closebar"><button data-close>取消</button></div>`,el=>{
     el.querySelectorAll('[data-g]').forEach(b=>b.onclick=()=>{
-      const g=+b.dataset.g,nos=r.filter(s=>s.group===g).map(s=>s.no);
+      const g=+b.dataset.g,nos=r.filter(s=>gOf(s.no)===g).map(s=>s.no);
       close();openItems(nos,`第 ${g} 組（${nos.length} 人）`);
     });
   });
@@ -627,14 +661,14 @@ function setupRoster(){
   const r=roster(D.cur.cls);
   const cnt=r.filter(s=>s.name).length;
   sheet(`<h3>👥 ${D.cur.cls} 名單
-      <span>座號 1–${r.length}　實際 ${cnt} 人　留空＝轉學／空號</span></h3>
+      <span>座號 1–${r.length}　實際 ${cnt} 人　組別是「${course().name}」這門課的</span></h3>
     ${r.map(s=>`<div class="row">
         <span style="width:30px;color:var(--dim);font-weight:700">${s.no}</span>
         <input data-nm="${s.no}" value="${s.name||''}" placeholder="（空號）"
                style="flex:1;padding:8px;font-size:15px">
         <input data-fm="${s.no}" value="${s.from||''}" placeholder="原班"
                style="width:64px;padding:8px;text-align:center;font-size:14px">
-        <input data-gp="${s.no}" value="${s.group||''}" placeholder="組"
+        <input data-gp="${s.no}" value="${gOf(s.no)||''}" placeholder="組"
                inputmode="numeric" style="width:46px;padding:8px;text-align:center;font-size:15px">
       </div>`).join('')}
     <div style="display:flex;gap:8px;margin-top:10px">
@@ -643,18 +677,19 @@ function setupRoster(){
     </div>
     <button class="btn" data-save>💾 儲存</button>
     <div class="closebar"><button data-close>取消</button></div>`,el=>{
-    const collect=()=>roster(D.cur.cls).map(s=>({
-      no:s.no,
-      name:(el.querySelector(`[data-nm="${s.no}"]`)?.value||'').trim(),
-      from:(el.querySelector(`[data-fm="${s.no}"]`)?.value||'').trim(),
-      group:+(el.querySelector(`[data-gp="${s.no}"]`)?.value||0)||0
-    }));
+    const collect=()=>roster(D.cur.cls).map(s=>{
+      const g=+(el.querySelector(`[data-gp="${s.no}"]`)?.value||0)||0;
+      setG(s.no,g);
+      return {no:s.no,
+        name:(el.querySelector(`[data-nm="${s.no}"]`)?.value||'').trim(),
+        from:(el.querySelector(`[data-fm="${s.no}"]`)?.value||'').trim()};
+    });
     el.querySelector('[data-save]').onclick=()=>{
       D.rosters[D.cur.cls]=collect();save();close();render();toast('名單已儲存');
     };
     el.querySelector('[data-add]').onclick=()=>{
       const cur=collect();
-      cur.push({no:cur.length+1,name:'',from:'',group:0});
+      cur.push({no:cur.length+1,name:'',from:''});
       D.rosters[D.cur.cls]=cur;save();close();setupRoster();
     };
     el.querySelector('[data-del]').onclick=()=>{
@@ -823,7 +858,7 @@ function setupData(){
             no:i+1,
             name:byNo.get(i+1)||'',
             from:fromNo.get(i+1)||old.find(x=>x.no===i+1)?.from||'',
-            group:old.find(x=>x.no===i+1)?.group||0
+            group:0
           }));
           n++;
         });
