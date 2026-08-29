@@ -434,7 +434,10 @@ async function delRecord(rec){
       const res=await fetch(url,{method:'POST',headers:{'Content-Type':'text/plain'},
         body:JSON.stringify({del:[[rec.t,rec.no,rec.name]]})});
       const out=await res.json();
-      toast(out&&out.ok?'已刪除（雲端同步）':'本機已刪，雲端待處理',!(out&&out.ok));
+      // 舊版 Apps Script 不認得刪除指令，會回 ok 但沒 deleted → 不可當成功
+      if(out&&out.ok&&typeof out.deleted==='number')
+        toast(out.deleted?'已刪除（含雲端）':'本機已刪，雲端找不到那筆');
+      else toast('本機已刪，雲端沒刪掉（Apps Script 要更新）',1);
     }catch(e){toast('本機已刪，雲端沒連上',1)}
   }else toast('已刪除');
 }
