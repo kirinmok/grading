@@ -158,7 +158,7 @@ td.n{text-align:right;font-variant-numeric:tabular-nums}
 
 <div id="bottom">
   <button id="btnBoard">🏆 本節</button>
-  <button id="btnMode" class="pri">👤 個人</button>
+  <button id="btnMode" class="pri">👥 整組</button>
   <button id="btnCalc">📊 成績</button>
 </div>
 
@@ -262,13 +262,20 @@ function clearGroups(){
 function render(){
   const c=course();
   if(!c.classes.includes(D.cur.cls))D.cur.cls=c.classes[0];
-  $('#pickLabel').innerHTML=`${c.icon} ${c.name} ${D.cur.cls} <small>點此換班</small>`;
+  $('#pickLabel').innerHTML = grouping
+    ? `✕ 分組中 <small>點此離開</small>`
+    : `${c.icon} ${c.name} ${D.cur.cls} <small>點此換班</small>`;
 
   const r=roster(D.cur.cls);
   const gs=[...new Set(r.map(s=>s.group).filter(Boolean))].sort((a,b)=>a-b);
   const gw=$('#groups');
   gw.innerHTML='';
   if(gs.length){
+    const all=document.createElement('button');
+    all.textContent='全部';
+    if(groupFilter===null)all.className='on';
+    all.onclick=()=>{groupFilter=null;render()};
+    gw.appendChild(all);
     gs.forEach(g=>{
       const b=document.createElement('button');
       b.textContent='第'+g+'組';
@@ -294,7 +301,17 @@ function render(){
         ? `<div class="sc${sel.has(s.no)?'':' zero'}">${sel.has(s.no)?'✓':'·'}</div>`
         : `<div class="sc${t?'':' zero'}">${t}</div>`)+
       `<div class="nm">${s.name||''}</div>`;
+    let hold=null,held=false;
+    const startHold=()=>{held=false;hold=setTimeout(()=>{held=true;buzz(18);openHistory(s.no)},480)};
+    const endHold=()=>clearTimeout(hold);
+    el.addEventListener('touchstart',startHold,{passive:true});
+    el.addEventListener('touchend',endHold);
+    el.addEventListener('touchmove',endHold,{passive:true});
+    el.addEventListener('mousedown',startHold);
+    el.addEventListener('mouseup',endHold);
+    el.addEventListener('mouseleave',endHold);
     el.onclick=()=>{
+      if(held){held=false;return}
       if(grouping){sel.has(s.no)?sel.delete(s.no):sel.add(s.no);buzz(10);render();}
       else openItems([s.no]);
     };
@@ -308,7 +325,7 @@ function render(){
        <button id="gSet" class="set">✓ 設為第 ${nextGroupNo()} 組（${sel.size}）</button>
        <button id="gDone">完成</button>`
     : `<button id="btnBoard">🏆 本節</button>
-       <button id="btnMode" class="pri">👤 個人</button>
+       <button id="btnMode" class="pri">👥 整組</button>
        <button id="btnCalc">📊 成績</button>`;
   wireBottom();
   save();
@@ -403,6 +420,44 @@ function setupSync(){
       if(!confirm('把全部記錄重新上傳一次？試算表會出現重複資料。'))return;
       D.records.forEach(r=>delete r.sy);save();close();flushSync(false);
     };
+  });
+}
+
+/* 刪一筆記錄：本機刪掉，若已同步就通知雲端一起刪 */
+async function delRecord(rec){
+  D.records=D.records.filter(r=>!(r.t===rec.t&&r.no===rec.no&&r.item===rec.item));
+  save();render();
+  buzz([12,30,12]);
+  const url=D.sync&&D.sync.url;
+  if(rec.sy&&url){
+    try{
+      const res=await fetch(url,{method:'POST',headers:{'Content-Type':'text/plain'},
+        body:JSON.stringify({del:[[rec.t,rec.no,rec.name]]})});
+      const out=await res.json();
+      toast(out&&out.ok?'已刪除（雲端同步）':'本機已刪，雲端待處理',!(out&&out.ok));
+    }catch(e){toast('本機已刪，雲端沒連上',1)}
+  }else toast('已刪除');
+}
+
+/* 長按學生 → 看他的記錄，逐筆刪 */
+function openHistory(no){
+  const c=course(),r=roster(D.cur.cls).find(s=>s.no===no)||{},k=sessionKey();
+  const mine=recs().filter(x=>x.no===no).sort((a,b)=>b.t-a.t);
+  sheet(`<h3>${no} ${r.name||''} 的記錄
+      <span>${c.icon} ${c.name} · ${D.cur.cls}　共 ${mine.length} 筆　本節 ${mine.filter(x=>x.session===k).length} 筆</span></h3>
+    ${mine.length? mine.map((x,i)=>`<div class="row">
+        <span style="color:var(--dim);font-size:12px;width:96px">${new Date(x.t).toLocaleString('zh-TW',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'})}</span>
+        <b>${x.name}${x.session===k?' <small style="color:var(--green)">本節</small>':''}</b>
+        <span class="tag">${tagName(x.tag,c)}</span>
+        <span style="font-weight:800;color:${x.v<0?'var(--red)':'var(--gold)'}">${x.v>0?'+':''}${x.v}</span>
+        <span class="x" data-del="${i}">✕</span></div>`).join('')
+      : `<div class="empty">還沒有記錄</div>`}
+    <div class="closebar"><button data-close>關閉</button></div>`,el=>{
+    el.querySelectorAll('[data-del]').forEach(b=>b.onclick=()=>{
+      const x=mine[+b.dataset.del];
+      if(!confirm(`刪掉「${x.name} ${x.v>0?'+':''}${x.v}」？`))return;
+      close();delRecord(x);
+    });
   });
 }
 
@@ -786,7 +841,7 @@ function wireBottom(){
   on('btnBoard',openBoard); on('btnCalc',openCalc); on('btnMode',openGroupMode);
   on('gSet',assignGroup); on('gClear',clearGroups); on('gDone',exitGrouping);
 }
-$('#pick').onclick=openPick;
+$('#pick').onclick=()=>grouping?exitGrouping():openPick();
 $('#btnUndo').onclick=()=>grouping?exitGrouping():undo();
 $('#btnSetup').onclick=openSetup;
 render();
