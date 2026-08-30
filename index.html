@@ -169,8 +169,8 @@ td.n{text-align:right;font-variant-numeric:tabular-nums}
    學生表現計分工具 — 本機優先版
    資料全部存在這台裝置的 localStorage，不上傳任何伺服器。
    ========================================================= */
-const VERSION='1.4';
-const BUILT='2026-08-29';
+const VERSION='1.5';
+const BUILT='2026-08-30';
 const LS='gradeapp.v1';
 const TAGS={
   regular:{name:'平常成績',color:'#30d158'},
@@ -435,15 +435,55 @@ function scheduleSync(){
 }
 window.addEventListener('online',()=>flushSync(true));
 
+/* 名冊與分組上雲：整批覆寫 Students / Groups 兩張表，不碰加分記錄 */
+async function uploadRoster(){
+  const url=D.sync&&D.sync.url;
+  if(!url){toast('先設定同步網址',1);return}
+  toast('上傳中…');
+  const students=[],groups=[];
+  Object.entries(D.rosters).forEach(([cls,list])=>{
+    list.forEach(s=>{
+      if(!s.name)return;                       // 空號（轉學）不上傳
+      students.push([`${cls}-${String(s.no).padStart(2,'0')}`,cls,s.no,
+                     s.name,'',true,s.from||'']);
+    });
+  });
+  const now=new Date().toISOString();
+  Object.entries(D.groups||{}).forEach(([cid,byCls])=>{
+    const c=D.courses.find(x=>x.id===cid);
+    Object.entries(byCls).forEach(([cls,m])=>{
+      const size={};
+      Object.values(m).forEach(g=>{if(g)size[g]=(size[g]||0)+1});
+      Object.entries(m).forEach(([no,g])=>{
+        if(!g)return;
+        groups.push([cid,c?c.name:cid,cls,g,+no,
+                     `${cls}-${String(no).padStart(2,'0')}`,
+                     size[g], size[g]>=3&&size[g]<=4, now]);
+      });
+    });
+  });
+  try{
+    const res=await fetch(url,{method:'POST',headers:{'Content-Type':'text/plain'},
+      body:JSON.stringify({students,groups})});
+    const out=await res.json();
+    if(!out||out.ok!==true)throw new Error(out&&out.error||'伺服器沒說 ok');
+    if(out.students===undefined)throw new Error('Apps Script 還是舊版，要重新部署');
+    D.sync.rosterAt=Date.now();save();
+    toast(`已上傳 ${out.students} 人、${out.groups} 筆分組`);
+  }catch(e){toast('上傳失敗：'+String(e.message||e).slice(0,30),1)}
+}
+
 function setupSync(){
   const s=D.sync||{};
   sheet(`<h3>☁️ 雲端同步<span>加分先存手機，背景才送出，不會拖慢上課</span></h3>
     <div class="row"><b>待同步</b><span style="font-weight:800;color:${pending()?'var(--gold)':'var(--green)'}">${pending()} 筆</span></div>
     <div class="row"><b>上次同步</b><span>${s.lastAt?new Date(s.lastAt).toLocaleString('zh-TW'):'從未'}</span></div>
+    <div class="row"><b>名冊上傳</b><span>${s.rosterAt?new Date(s.rosterAt).toLocaleString('zh-TW'):'從未'}</span></div>
     <label>Apps Script 網址（貼一次就好，只存在這台手機）</label>
     <textarea id="su" rows="3" placeholder="https://script.google.com/macros/s/…/exec">${s.url||''}</textarea>
     <button class="btn" data-save>💾 儲存網址</button>
-    <button class="btn gray" data-now>⬆️ 立即同步</button>
+    <button class="btn gray" data-now>⬆️ 立即同步（加分記錄）</button>
+    <button class="btn gray" data-roster>👥 上傳名冊與分組</button>
     <button class="btn gray" data-all>🔁 全部重新上傳（會重複，慎用）</button>
     <div class="closebar"><button data-close>關閉</button></div>`,el=>{
     el.querySelector('[data-save]').onclick=()=>{
@@ -452,6 +492,7 @@ function setupSync(){
       D.sync={...(D.sync||{}),url:u};save();close();toast(u?'網址已存':'已清除網址');
     };
     el.querySelector('[data-now]').onclick=()=>{close();flushSync(false)};
+    el.querySelector('[data-roster]').onclick=()=>{close();uploadRoster()};
     el.querySelector('[data-all]').onclick=()=>{
       if(!confirm('把全部記錄重新上傳一次？試算表會出現重複資料。'))return;
       D.records.forEach(r=>delete r.sy);save();close();flushSync(false);

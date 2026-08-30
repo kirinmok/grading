@@ -1,5 +1,11 @@
 # 版本紀錄
 
+## v1.5 — 2026-08-30
+- ☁️ 雲端同步頁新增「👥 上傳名冊與分組」：把 161 人名冊與分組整批上雲
+  （新增 Students / Groups 兩張分頁，Groups 含 course_id，兩門課分組不互相覆蓋）
+- 搭配 Apps Script v2.0（新增 Students / Groups / MissionCatalog /
+  ClassMissionSchedule / GateStatus 五張表，加分記錄完全不動）
+
 ## v1.4 — 2026-08-29
 - 🔴 修正設計缺陷：**分組改成跟著「課程×班級」走**
   同一個班在不同課程可有各自分組（902 無人機六組 ≠ 902 專題的分組）
