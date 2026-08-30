@@ -169,8 +169,9 @@ td.n{text-align:right;font-variant-numeric:tabular-nums}
    學生表現計分工具 — 本機優先版
    資料全部存在這台裝置的 localStorage，不上傳任何伺服器。
    ========================================================= */
-const VERSION='1.5';
+const VERSION='1.6';
 const BUILT='2026-08-30';
+let CLOUD_VERSION=null;   // 開啟時向雲端問，兩邊版本要一致
 const LS='gradeapp.v1';
 const TAGS={
   regular:{name:'平常成績',color:'#30d158'},
@@ -680,7 +681,9 @@ async function checkUpdate(){
 }
 
 function openSetup(){
-  sheet(`<h3>⚙️ 設定<span>版本 v${VERSION}　${BUILT}</span></h3>
+  const cv=CLOUD_VERSION;
+  const sameVer = cv===null ? '雲端：查詢中…' : (cv===VERSION ? `雲端 v${cv} ✅` : `🔴 雲端 v${cv} 不一致`);
+  sheet(`<h3>⚙️ 設定<span>手機 v${VERSION}　${BUILT}　｜　${sameVer}</span></h3>
     <button class="btn gray" data-go="upd">🔄 檢查更新</button>
     <button class="btn" data-go="quick">✋ 快速分組（${D.cur.cls}）</button>
     <button class="btn gray" data-go="roster">👥 名單（${D.cur.cls}）</button>
@@ -944,6 +947,18 @@ $('#pick').onclick=()=>grouping?exitGrouping():openPick();
 $('#btnUndo').onclick=()=>grouping?exitGrouping():undo();
 $('#btnSetup').onclick=openSetup;
 render();
+
+/* 開啟時問一次雲端版本，兩邊不一致要讓老師看得到 */
+(async()=>{
+  const url=D.sync&&D.sync.url;if(!url)return;
+  try{
+    const r=await fetch(url,{cache:'no-store'});
+    const j=await r.json();
+    CLOUD_VERSION=j.version||'?';
+    if(CLOUD_VERSION!==VERSION)
+      toast(`雲端 v${CLOUD_VERSION} 與手機 v${VERSION} 不一致`,1);
+  }catch(e){CLOUD_VERSION='連不上'}
+})();
 
 if('serviceWorker' in navigator){
   navigator.serviceWorker.register('sw.js').catch(()=>{});
