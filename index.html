@@ -142,6 +142,14 @@ td.n{text-align:right;font-variant-numeric:tabular-nums}
 }
 #toast.on{opacity:1}
 #toast.bad{background:rgba(255,69,58,.95);color:#fff}
+#updBar{
+  position:fixed;left:10px;right:10px;bottom:calc(72px + var(--pad));z-index:70;
+  background:var(--blue);color:#fff;border-radius:14px;padding:12px 14px;
+  display:flex;gap:10px;align-items:center;font-size:15px;font-weight:700;
+  box-shadow:0 6px 20px rgba(0,0,0,.45);animation:up .2s ease-out
+}
+#updBar .go{background:rgba(255,255,255,.22);border-radius:10px;padding:8px 14px;font-weight:800}
+#updBar .no{opacity:.7;padding:8px 4px;font-size:13px}
 .empty{color:var(--dim);text-align:center;padding:40px 20px;font-size:15px;line-height:1.7}
 </style>
 </head>
@@ -169,7 +177,7 @@ td.n{text-align:right;font-variant-numeric:tabular-nums}
    學生表現計分工具 — 本機優先版
    資料全部存在這台裝置的 localStorage，不上傳任何伺服器。
    ========================================================= */
-const VERSION='1.7.1';
+const VERSION='1.8';
 const BUILT='2026-08-30';
 let CLOUD_VERSION=null;
 /* 雲端只有在 Apps Script 真的改過時才需要重新部署，
@@ -1149,6 +1157,30 @@ $('#pick').onclick=()=>grouping?exitGrouping():openPick();
 $('#btnUndo').onclick=()=>grouping?exitGrouping():undo();
 $('#btnSetup').onclick=openSetup;
 render();
+
+/* 開啟時自動查有沒有新版。不自動重載（上課中不能被打斷），
+   只顯示一條橫幅讓老師自己決定何時更新 */
+async function autoCheckUpdate(){
+  try{
+    const r=await fetch(location.href.split('?')[0]+'?cb='+Date.now(),{cache:'no-store'});
+    const t=await r.text();
+    const m=t.match(/const VERSION='([^']+)'/);
+    if(!m||m[1]===VERSION)return;
+    const bar=document.createElement('div');
+    bar.id='updBar';
+    bar.innerHTML=`<span style="flex:1">有新版 v${m[1]}</span>
+      <button class="go">立即更新</button><button class="no">稍後</button>`;
+    bar.querySelector('.go').onclick=async()=>{
+      const regs=await navigator.serviceWorker.getRegistrations();
+      for(const g of regs)await g.unregister();
+      for(const k of await caches.keys())await caches.delete(k);
+      location.replace(location.href.split('?')[0]+'?v='+Date.now());
+    };
+    bar.querySelector('.no').onclick=()=>bar.remove();
+    document.body.appendChild(bar);
+  }catch(e){}
+}
+setTimeout(autoCheckUpdate,2500);
 
 /* 開啟時問一次雲端版本，兩邊不一致要讓老師看得到 */
 (async()=>{
