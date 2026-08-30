@@ -169,7 +169,7 @@ td.n{text-align:right;font-variant-numeric:tabular-nums}
    學生表現計分工具 — 本機優先版
    資料全部存在這台裝置的 localStorage，不上傳任何伺服器。
    ========================================================= */
-const VERSION='1.6';
+const VERSION='1.7';
 const BUILT='2026-08-30';
 let CLOUD_VERSION=null;   // 開啟時向雲端問，兩邊版本要一致
 const LS='gradeapp.v1';
@@ -181,6 +181,35 @@ const TAGS={
 };
 /* 每個課程可以自己命名這四格（社團的四項跟正課不一樣） */
 function tagName(k,c){return (c||course())?.tagNames?.[k]||TAGS[k].name;}
+
+/* ---------------- 闖關任務 ----------------
+   狀態色經 CVD 驗證：綠/藍/紅在紅綠色盲下仍可分辨，且一律附文字，不靠顏色分辨 */
+const ST={
+  none:  {t:'未交',   c:'#ff453a', i:'⚠️'},
+  sub:   {t:'待核准', c:'#0a84ff', i:'⏳'},
+  pass:  {t:'通過',   c:'#30d158', i:'✅'},
+  revise:{t:'待補件', c:'#ff9f0a', i:'✏️'},
+  lock:  {t:'未開放', c:'#48484a', i:'🔒'}
+};
+
+/* 無人機 13 堂（902/903）。901/904 的 16 堂另表，之後再補 */
+function droneMissions(){
+  return [
+    {id:'M01',seq:1, title:'任務預告與分組',      gate:'',  scope:'group', note:'不計分'},
+    {id:'M02',seq:2, title:'七組拼圖情報任務',    gate:'',  scope:'group', note:'一頁報告＋2來源'},
+    {id:'M03',seq:3, title:'拼圖發表',            gate:'A', scope:'group', note:'A 情報通行證'},
+    {id:'M04',seq:4, title:'系統圖與機架配置',    gate:'',  scope:'group', note:'故障排查路徑'},
+    {id:'M05',seq:5, title:'子系統實驗',          gate:'',  scope:'group', note:'預測—實測表'},
+    {id:'M06',seq:6, title:'電池電表與焊接資格',  gate:'B', scope:'person',note:'B 個人焊接資格'},
+    {id:'M07',seq:7, title:'盤點與第一批焊接',    gate:'',  scope:'group', note:'板未到走分流'},
+    {id:'M08',seq:8, title:'指定焊接與機構組裝',  gate:'C', scope:'group', note:'C 上電卡'},
+    {id:'M09',seq:9, title:'Pico 啟動與 IMU',     gate:'',  scope:'group', note:'需 C 卡'},
+    {id:'M10',seq:10,title:'無槳四馬達與急停',    gate:'',  scope:'group', note:'電子最低完成線'},
+    {id:'M11',seq:11,title:'整機與受限測試',      gate:'D', scope:'group', note:'D 測試卡'},
+    {id:'M12',seq:12,title:'除錯與單一變因優化',  gate:'',  scope:'group', note:'三次測試證據'},
+    {id:'M13',seq:13,title:'最終驗收與個人省思',  gate:'',  scope:'person',note:'E 成果省思'}
+  ];
+}
 
 function defaultItems(){
   return [
@@ -363,7 +392,8 @@ function render(){
        <button id="gDone">完成</button>`
     : `<button id="btnBoard">🏆 本節</button>
        <button id="btnMode" class="pri">👥 整組</button>
-       <button id="btnCalc">📊 成績</button>`;
+       ${missionsOf()? '<button id="btnQuest">🚁 闖關</button>'
+                     : '<button id="btnCalc">📊 成績</button>'}`;
   wireBottom();
   save();
 }
@@ -472,6 +502,164 @@ async function uploadRoster(){
     D.sync.rosterAt=Date.now();save();
     toast(`已上傳 ${out.students} 人、${out.groups} 筆分組`);
   }catch(e){toast('上傳失敗：'+String(e.message||e).slice(0,30),1)}
+}
+
+/* ---------------- 闖關頁 ---------------- */
+function missionsOf(c){ return (c||course()).missions || null; }
+function planOf(){                       // 已開放到第幾關
+  D.plan=D.plan||{};
+  const c=D.cur.course,k=D.cur.cls;
+  D.plan[c]=D.plan[c]||{}; D.plan[c][k]=D.plan[c][k]||{openTo:1};
+  return D.plan[c][k];
+}
+function progOf(){                       // 各關各組狀態
+  D.prog=D.prog||{};
+  const c=D.cur.course,k=D.cur.cls;
+  D.prog[c]=D.prog[c]||{}; D.prog[c][k]=D.prog[c][k]||{};
+  return D.prog[c][k];
+}
+function groupsHere(){
+  const m=gmap(),by={};
+  Object.entries(m).forEach(([no,g])=>{if(g)(by[g]=by[g]||[]).push(+no)});
+  return Object.keys(by).sort((a,b)=>a-b).map(g=>({g:+g,seats:by[g].sort((a,b)=>a-b)}));
+}
+function stOf(mid,g){ return (progOf()[mid]||{})[g] || 'none'; }
+function setSt(mid,g,s){
+  const p=progOf(); p[mid]=p[mid]||{};
+  if(s==='none')delete p[mid][g]; else p[mid][g]=s;
+  save();
+}
+
+/* 圓環：單一數列，中央直接標數字，不靠顏色分辨 */
+function donut(pass,total,size){
+  const r=size/2-7, c=size/2, C=2*Math.PI*r;
+  const pct=total?pass/total:0;
+  return `<svg viewBox="0 0 ${size} ${size}" width="${size}" height="${size}" role="img"
+      aria-label="${total} 組中 ${pass} 組通過">
+    <circle cx="${c}" cy="${c}" r="${r}" fill="none" stroke="#3a3a3c" stroke-width="9"/>
+    <circle cx="${c}" cy="${c}" r="${r}" fill="none" stroke="${ST.pass.c}" stroke-width="9"
+      stroke-linecap="round" stroke-dasharray="${(C*pct).toFixed(1)} ${C.toFixed(1)}"
+      transform="rotate(-90 ${c} ${c})"/>
+    <text x="${c}" y="${c-2}" text-anchor="middle" fill="#fff"
+      font-size="${size*0.26}" font-weight="800">${pass}</text>
+    <text x="${c}" y="${c+size*0.18}" text-anchor="middle" fill="#8e8e93"
+      font-size="${size*0.13}" font-weight="600">/ ${total} 組</text>
+  </svg>`;
+}
+
+function openQuest(){
+  const c=course(), ms=missionsOf(c);
+  if(!ms){toast('這門課還沒有闖關任務',1);return}
+  const plan=planOf(), gs=groupsHere();
+  if(!gs.length){toast('這個班還沒分組，⚙️ → 快速分組',1);return}
+
+  const cur=ms.find(m=>m.seq===plan.openTo)||ms[0];
+  const tally={pass:0,sub:0,revise:0,none:0};
+  gs.forEach(x=>tally[stOf(cur.id,x.g)]++);
+
+  sheet(`<h3>🚁 ${c.name} · ${D.cur.cls}
+      <span>第 ${cur.seq} 關　${cur.title}${cur.gate?`　🔑 ${cur.gate} 關卡`:''}</span></h3>
+
+    <div style="display:flex;gap:14px;align-items:center;margin-bottom:14px">
+      ${donut(tally.pass,gs.length,104)}
+      <div style="flex:1;font-size:14px;line-height:2">
+        ${Object.entries(tally).filter(([k,v])=>v).map(([k,v])=>
+          `<div><span style="display:inline-block;width:11px;height:11px;border-radius:3px;
+            background:${ST[k].c};margin-right:7px;vertical-align:-1px"></span>
+            ${ST[k].i} ${ST[k].t} <b>${v}</b> 組</div>`).join('') || '<div style="color:var(--dim)">還沒有記錄</div>'}
+      </div>
+    </div>
+
+    ${gs.map(x=>{
+      const s=stOf(cur.id,x.g), d=ST[s];
+      const w=s==='pass'?100:s==='sub'?66:s==='revise'?40:6;
+      return `<div class="row" data-g="${x.g}" style="cursor:pointer">
+        <b style="flex:none;width:52px">第${x.g}組</b>
+        <div style="flex:1;height:10px;background:#3a3a3c;border-radius:5px;overflow:hidden">
+          <div style="width:${w}%;height:100%;background:${d.c};border-radius:5px"></div>
+        </div>
+        <span style="flex:none;width:74px;text-align:right;font-size:13px;color:${d.c};font-weight:700">
+          ${d.i} ${d.t}</span>
+      </div>`;
+    }).join('')}
+    <div style="color:var(--dim);font-size:12px;margin-top:2px">點組別可切換狀態</div>
+
+    <div style="display:flex;gap:8px;margin-top:12px">
+      <button class="btn gray" data-prev style="margin:0">◀ 上一關</button>
+      <button class="btn" data-next style="margin:0">下一關 ▶</button>
+    </div>
+    <button class="btn gray" data-care>🩺 關懷清單</button>
+    <div class="closebar"><button data-close>關閉</button></div>`,el=>{
+
+    el.querySelectorAll('[data-g]').forEach(b=>b.onclick=()=>{
+      const g=+b.dataset.g, order=['none','sub','revise','pass'];
+      const now=stOf(cur.id,g);
+      const next=order[(order.indexOf(now)+1)%order.length];
+      // 安全關卡不可跳過待核准直接通過
+      if(cur.gate && now==='none' && next!=='sub'){setSt(cur.id,g,'sub')}
+      else setSt(cur.id,g,next);
+      buzz(12); close(); openQuest();
+    });
+    el.querySelector('[data-prev]').onclick=()=>{
+      plan.openTo=Math.max(1,plan.openTo-1);save();close();openQuest();
+    };
+    el.querySelector('[data-next]').onclick=()=>{
+      plan.openTo=Math.min(ms.length,plan.openTo+1);save();close();openQuest();
+      toast(`已開放第 ${plan.openTo} 關`);
+    };
+    el.querySelector('[data-care]').onclick=()=>{close();openCare()};
+  });
+}
+
+/* 啟用／停用這門課的闖關任務 */
+function setupQuest(){
+  const c=course(), on=!!c.missions;
+  sheet(`<h3>🚁 ${c.icon} ${c.name} 闖關任務
+      <span>${on?`已啟用，共 ${c.missions.length} 關`:'尚未啟用'}</span></h3>
+    ${on? c.missions.map(m=>`<div class="row">
+        <b style="flex:none;width:34px;color:var(--dim)">${m.seq}</b>
+        <b>${m.title}</b>
+        ${m.gate?`<span class="tag" style="color:var(--gold)">🔑 ${m.gate}</span>`:''}
+        <span class="tag">${m.scope==='person'?'個人':'小組'}</span></div>`).join('')
+      : `<div class="empty">啟用後，底部會多一顆「🚁 闖關」<br>可開放任務、記各組狀態、看關懷清單</div>`}
+    ${on? `<button class="btn danger" data-off>停用闖關（不刪除已記錄的狀態）</button>`
+        : `<button class="btn" data-drone>🚁 套用無人機 13 關</button>`}
+    <div class="closebar"><button data-close>關閉</button></div>`,el=>{
+    const b1=el.querySelector('[data-drone]'), b2=el.querySelector('[data-off]');
+    if(b1)b1.onclick=()=>{c.missions=droneMissions();save();close();render();toast('已套用 13 關')};
+    if(b2)b2.onclick=()=>{delete c.missions;save();close();render();toast('已停用',1)};
+  });
+}
+
+/* 關懷清單：跨關卡掃描，找出落後與異常 */
+function openCare(){
+  const c=course(), ms=missionsOf(c);
+  const plan=planOf(), gs=groupsHere(), items=[];
+
+  gs.forEach(x=>{
+    if(x.seats.length<3) items.push({p:1,t:`第${x.g}組只有 ${x.seats.length} 人`,d:'少於三人'});
+    if(x.seats.length>4) items.push({p:1,t:`第${x.g}組有 ${x.seats.length} 人`,d:'超過四人'});
+    let miss=0;
+    ms.filter(m=>m.seq<=plan.openTo).forEach(m=>{
+      const s=stOf(m.id,x.g);
+      if(s==='pass'){miss=0;return}
+      if(s==='none')miss++;
+      if(m.gate&&s!=='pass')
+        items.push({p:0,t:`第${x.g}組 ${m.gate} 關卡未通過`,d:`${m.id} ${m.title}`});
+    });
+    if(miss>=2) items.push({p:1,t:`第${x.g}組連續 ${miss} 關未完成`,d:'需要關心'});
+  });
+
+  const r=roster(D.cur.cls), m=gmap();
+  r.forEach(s=>{ if(s.name&&!m[s.no]) items.push({p:1,t:`${s.no} ${s.name} 沒有組別`,d:'未分組'}); });
+
+  items.sort((a,b)=>a.p-b.p);
+  sheet(`<h3>🩺 關懷清單<span>${c.name} · ${D.cur.cls}　共 ${items.length} 件</span></h3>
+    ${items.length? items.map(i=>`<div class="row">
+        <span style="flex:none">${i.p===0?'🔴':'🟡'}</span>
+        <b>${i.t}</b><span class="tag">${i.d}</span></div>`).join('')
+      : `<div class="empty">目前沒有需要關心的項目 👏</div>`}
+    <div class="closebar"><button data-close>關閉</button></div>`);
 }
 
 function setupSync(){
@@ -689,12 +877,16 @@ function openSetup(){
     <button class="btn gray" data-go="roster">👥 名單（${D.cur.cls}）</button>
     <button class="btn gray" data-go="items">🏷️ 加分項目（${course().name}）</button>
     <button class="btn gray" data-go="tags">🗂️ 四項成績名稱（${course().name}）</button>
+    <button class="btn gray" data-go="quest">🚁 闖關任務（${course().name}）</button>
+    <button class="btn gray" data-go="calc">📊 期末成績</button>
     <button class="btn gray" data-go="courses">📚 課程與班級</button>
     <button class="btn gray" data-go="sync">☁️ 雲端同步${(D.sync&&D.sync.url)?`（待送 ${pending()}）`:'（未設定）'}</button>
     <button class="btn gray" data-go="data">💾 資料備份 / 還原</button>
     <div class="closebar"><button data-close>關閉</button></div>`,el=>{
     el.querySelectorAll('[data-go]').forEach(b=>b.onclick=()=>{
       if(b.dataset.go==='upd'){close();checkUpdate();return}
+      if(b.dataset.go==='calc'){close();openCalc();return}
+      if(b.dataset.go==='quest'){close();setupQuest();return}
       close();({quick:enterGrouping,roster:setupRoster,items:setupItems,
         tags:setupTags,courses:setupCourses,sync:setupSync,data:setupData})[b.dataset.go]();
     });
@@ -941,6 +1133,7 @@ function close(){if(sheetEl){sheetEl.remove();sheetEl=null}}
 function wireBottom(){
   const on=(id,fn)=>{const el=$('#'+id);if(el)el.onclick=fn};
   on('btnBoard',openBoard); on('btnCalc',openCalc); on('btnMode',openGroupMode);
+  on('btnQuest',openQuest);
   on('gSet',assignGroup); on('gClear',clearGroups); on('gDone',exitGrouping);
 }
 $('#pick').onclick=()=>grouping?exitGrouping():openPick();
