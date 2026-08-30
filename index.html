@@ -169,9 +169,15 @@ td.n{text-align:right;font-variant-numeric:tabular-nums}
    學生表現計分工具 — 本機優先版
    資料全部存在這台裝置的 localStorage，不上傳任何伺服器。
    ========================================================= */
-const VERSION='1.7';
+const VERSION='1.7.1';
 const BUILT='2026-08-30';
-let CLOUD_VERSION=null;   // 開啟時向雲端問，兩邊版本要一致
+let CLOUD_VERSION=null;
+/* 雲端只有在 Apps Script 真的改過時才需要重新部署，
+   所以不比對「相等」，只檢查雲端有沒有舊到不支援目前的功能 */
+const CLOUD_MIN='1.6';
+const verLT=(a,b)=>{const x=String(a).split('.').map(Number),y=String(b).split('.').map(Number);
+  for(let i=0;i<Math.max(x.length,y.length);i++){const d=(x[i]||0)-(y[i]||0);if(d)return d<0}
+  return false;};
 const LS='gradeapp.v1';
 const TAGS={
   regular:{name:'平常成績',color:'#30d158'},
@@ -870,7 +876,10 @@ async function checkUpdate(){
 
 function openSetup(){
   const cv=CLOUD_VERSION;
-  const sameVer = cv===null ? '雲端：查詢中…' : (cv===VERSION ? `雲端 v${cv} ✅` : `🔴 雲端 v${cv} 不一致`);
+  const sameVer = cv===null ? '雲端：查詢中…'
+    : cv==='連不上' ? '🔴 雲端連不上'
+    : verLT(cv,CLOUD_MIN) ? `🔴 雲端 v${cv} 太舊（需 ${CLOUD_MIN}）`
+    : `雲端 v${cv} ✅`;
   sheet(`<h3>⚙️ 設定<span>手機 v${VERSION}　${BUILT}　｜　${sameVer}</span></h3>
     <button class="btn gray" data-go="upd">🔄 檢查更新</button>
     <button class="btn" data-go="quick">✋ 快速分組（${D.cur.cls}）</button>
@@ -1148,8 +1157,8 @@ render();
     const r=await fetch(url,{cache:'no-store'});
     const j=await r.json();
     CLOUD_VERSION=j.version||'?';
-    if(CLOUD_VERSION!==VERSION)
-      toast(`雲端 v${CLOUD_VERSION} 與手機 v${VERSION} 不一致`,1);
+    if(verLT(CLOUD_VERSION,CLOUD_MIN))
+      toast(`雲端 v${CLOUD_VERSION} 太舊，需重新部署到 ${CLOUD_MIN}`,1);
   }catch(e){CLOUD_VERSION='連不上'}
 })();
 
