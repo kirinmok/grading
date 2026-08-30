@@ -177,12 +177,12 @@ td.n{text-align:right;font-variant-numeric:tabular-nums}
    學生表現計分工具 — 本機優先版
    資料全部存在這台裝置的 localStorage，不上傳任何伺服器。
    ========================================================= */
-const VERSION='1.8';
+const VERSION='1.9';
 const BUILT='2026-08-30';
 let CLOUD_VERSION=null;
 /* 雲端只有在 Apps Script 真的改過時才需要重新部署，
    所以不比對「相等」，只檢查雲端有沒有舊到不支援目前的功能 */
-const CLOUD_MIN='1.6';
+const CLOUD_MIN='1.9';
 const verLT=(a,b)=>{const x=String(a).split('.').map(Number),y=String(b).split('.').map(Number);
   for(let i=0;i<Math.max(x.length,y.length);i++){const d=(x[i]||0)-(y[i]||0);if(d)return d<0}
   return false;};
@@ -480,6 +480,63 @@ function scheduleSync(){
 }
 window.addEventListener('online',()=>flushSync(true));
 
+/* ---------------- 完整備份與還原 ----------------
+   手機掉了 / 換手機 / 重灌，全部從雲端拉回來。
+   Backup 分頁存整包 JSON 快照，每次自動備份會新增一列，保留歷史版本。 */
+async function cloudBackup(silent){
+  const url=D.sync&&D.sync.url;
+  if(!url){if(!silent)toast('先設定同步網址',1);return false}
+  try{
+    const snap=JSON.stringify(D);
+    const res=await fetch(url,{method:'POST',headers:{'Content-Type':'text/plain'},
+      body:JSON.stringify({backup:{
+        at:new Date().toISOString(), version:VERSION, device:navigator.userAgent.slice(0,60),
+        students:Object.values(D.rosters).reduce((n,l)=>n+l.filter(s=>s.name).length,0),
+        records:D.records.length, snapshot:snap }})});
+    const out=await res.json();
+    if(!out||out.ok!==true)throw new Error(out&&out.error||'伺服器沒說 ok');
+    if(out.backup===undefined)throw new Error('雲端要更新才支援備份');
+    D.sync.backupAt=Date.now();save();
+    if(!silent)toast('已備份到雲端');
+    return true;
+  }catch(e){ if(!silent)toast('備份失敗：'+String(e.message||e).slice(0,28),1); return false }
+}
+
+async function cloudRestore(){
+  const url=D.sync&&D.sync.url;
+  if(!url){toast('先設定同步網址',1);return}
+  toast('讀取備份中…');
+  try{
+    const r=await fetch(url+'?what=backups',{cache:'no-store'});
+    const j=await r.json();
+    if(!j.ok||!j.rows)throw new Error('雲端要更新才支援還原');
+    if(!j.rows.length){toast('雲端沒有任何備份',1);return}
+    sheet(`<h3>☁️ 從雲端還原<span>選一個時間點，會覆蓋這台手機目前的資料</span></h3>
+      ${j.rows.slice().reverse().map((b,i)=>`<div class="row" data-i="${j.rows.length-1-i}">
+        <b>${new Date(b[0]).toLocaleString('zh-TW')}</b>
+        <span class="tag">v${b[1]}</span>
+        <span class="tag">${b[3]} 人</span>
+        <span class="tag">${b[4]} 筆</span></div>`).join('')}
+      <div style="color:var(--dim);font-size:12px;margin-top:8px;line-height:1.6">
+        還原前會自動先備份目前狀態，選錯還能救回來。</div>
+      <div class="closebar"><button data-close>取消</button></div>`,el=>{
+      el.querySelectorAll('[data-i]').forEach(b=>b.onclick=async()=>{
+        const row=j.rows[+b.dataset.i];
+        if(!confirm(`還原到 ${new Date(row[0]).toLocaleString('zh-TW')}？\n目前手機上的資料會被覆蓋。`))return;
+        close();
+        await cloudBackup(true);                    // 先保住現況
+        try{
+          const o=JSON.parse(row[5]);
+          if(!o||!o.courses)throw new Error('備份內容不完整');
+          D={...structuredClone(DEFAULT),...o};
+          save();render();
+          toast(`已還原 ${o.records?o.records.length:0} 筆記錄`);
+        }catch(e){toast('還原失敗：'+String(e.message||e).slice(0,28),1)}
+      });
+    });
+  }catch(e){toast('讀不到備份：'+String(e.message||e).slice(0,28),1)}
+}
+
 /* 名冊與分組上雲：整批覆寫 Students / Groups 兩張表，不碰加分記錄 */
 async function uploadRoster(){
   const url=D.sync&&D.sync.url;
@@ -682,11 +739,14 @@ function setupSync(){
     <div class="row"><b>待同步</b><span style="font-weight:800;color:${pending()?'var(--gold)':'var(--green)'}">${pending()} 筆</span></div>
     <div class="row"><b>上次同步</b><span>${s.lastAt?new Date(s.lastAt).toLocaleString('zh-TW'):'從未'}</span></div>
     <div class="row"><b>名冊上傳</b><span>${s.rosterAt?new Date(s.rosterAt).toLocaleString('zh-TW'):'從未'}</span></div>
+    <div class="row"><b>完整備份</b><span style="color:${s.backupAt&&Date.now()-s.backupAt<3*864e5?'var(--green)':'var(--gold)'}">${s.backupAt?new Date(s.backupAt).toLocaleString('zh-TW'):'🔴 從未備份'}</span></div>
     <label>Apps Script 網址（貼一次就好，只存在這台手機）</label>
     <textarea id="su" rows="3" placeholder="https://script.google.com/macros/s/…/exec">${s.url||''}</textarea>
     <button class="btn" data-save>💾 儲存網址</button>
     <button class="btn gray" data-now>⬆️ 立即同步（加分記錄）</button>
     <button class="btn gray" data-roster>👥 上傳名冊與分組</button>
+    <button class="btn gray" data-bk>☁️ 立即備份全部</button>
+    <button class="btn" data-rs2>♻️ 從雲端還原（換手機用）</button>
     <button class="btn gray" data-all>🔁 全部重新上傳（會重複，慎用）</button>
     <div class="closebar"><button data-close>關閉</button></div>`,el=>{
     el.querySelector('[data-save]').onclick=()=>{
@@ -696,6 +756,8 @@ function setupSync(){
     };
     el.querySelector('[data-now]').onclick=()=>{close();flushSync(false)};
     el.querySelector('[data-roster]').onclick=()=>{close();uploadRoster()};
+    el.querySelector('[data-bk]').onclick=()=>{close();cloudBackup(false)};
+    el.querySelector('[data-rs2]').onclick=()=>{close();cloudRestore()};
     el.querySelector('[data-all]').onclick=()=>{
       if(!confirm('把全部記錄重新上傳一次？試算表會出現重複資料。'))return;
       D.records.forEach(r=>delete r.sy);save();close();flushSync(false);
@@ -1181,6 +1243,12 @@ async function autoCheckUpdate(){
   }catch(e){}
 }
 setTimeout(autoCheckUpdate,2500);
+
+/* 每天自動備份一次到雲端。靜默執行，失敗不吵，但設定頁看得到上次時間 */
+setTimeout(()=>{
+  const last=(D.sync&&D.sync.backupAt)||0;
+  if(Date.now()-last > 864e5) cloudBackup(true);
+},6000);
 
 /* 開啟時問一次雲端版本，兩邊不一致要讓老師看得到 */
 (async()=>{
