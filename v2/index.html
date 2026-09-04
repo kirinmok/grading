@@ -288,13 +288,14 @@ function load(){
 function migrate(r){
   /* v1.10：補個人扣分項。舊課程的扣分項都是 group:true，
      單獨點一個學生時會被 filter 掉，所以看起來只有加分。 */
-  if(!r.negMigrated){
+  /* 版號往上加，就會補上這一版新增的扣分項；已經有的同名項目不會重複加。 */
+  if((r.negMigrated||0) < 2){
     (r.courses||[]).forEach(c=>{
       c.items=c.items||[];
-      const hasPersonalNeg=c.items.some(i=>i.v<0&&!i.group);
-      if(!hasPersonalNeg)c.items=c.items.concat(negItems());
+      const have=new Set(c.items.filter(i=>!i.group).map(i=>i.name));
+      negItems().forEach(n=>{if(!have.has(n.name))c.items.push(n)});
     });
-    r.negMigrated=1;
+    r.negMigrated=2;
   }
   if(r.groupsMigrated)return r;
   r.groups=r.groups||{};
