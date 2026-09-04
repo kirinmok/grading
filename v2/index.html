@@ -183,7 +183,7 @@ td.n{text-align:right;font-variant-numeric:tabular-nums}
    學生表現計分工具 — 本機優先版
    資料全部存在這台裝置的 localStorage，不上傳任何伺服器。
    ========================================================= */
-const VERSION='1.10';
+const VERSION='1.11';
 const BUILT='2026-08-30';
 let CLOUD_VERSION=null;
 /* 雲端只有在 Apps Script 真的改過時才需要重新部署，
@@ -1170,8 +1170,29 @@ function setupData(){
     <textarea id="rs" rows="5" placeholder="801&#10;1 林宏峻&#10;2 林建志&#10;&#10;802&#10;1 江秉恩"></textarea>
     <button class="btn" data-imp>👥 只匯入名單（不動計分）</button>
     <button class="btn gray" data-rs>♻️ 完整還原（會覆蓋全部）</button>
+    <button class="btn gray" data-sw>🔄 強制更新程式（不動名單與計分）</button>
+    <div style="color:var(--dim);font-size:12px;margin:-2px 0 10px;line-height:1.6">
+      改版之後手機還是舊畫面、按「檢查更新」又說已是最新，就按這個。
+      它會把離線快取整個清掉再重載，名單和計分都不會動到。</div>
     <button class="btn danger" data-clr>⚠️ 清空所有計分記錄</button>
     <div class="closebar"><button data-close>關閉</button></div>`,el=>{
+    /* 強制更新：Service Worker 卡舊版時的逃生門。
+       只清離線快取，localStorage（名單與計分）完全不碰。 */
+    el.querySelector('[data-sw]').onclick=async()=>{
+      if(!confirm('清掉離線快取並重新載入？\n名單和計分不會不見。'))return;
+      try{
+        if('serviceWorker' in navigator){
+          const rs=await navigator.serviceWorker.getRegistrations();
+          await Promise.all(rs.map(r=>r.unregister()));
+        }
+        if(window.caches){
+          const ks=await caches.keys();
+          await Promise.all(ks.map(k=>caches.delete(k)));
+        }
+      }catch(e){}
+      // 帶時間戳繞過所有中間快取
+      location.replace(location.pathname+'?fresh='+Date.now());
+    };
     el.querySelector('[data-bk]').onclick=()=>{
       const a=document.createElement('a');
       a.href=URL.createObjectURL(new Blob([JSON.stringify(D)],{type:'application/json'}));
