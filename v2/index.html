@@ -65,6 +65,9 @@ header{
   font-size:11px;font-weight:800;border-radius:9px;padding:1px 5px;line-height:1.35;
 }
 .stu.g{border-color:var(--blue)}
+/* 篩選某一組時，其他組整個灰掉。不擋點擊，誤點還有 ↩︎ 可以撤銷。 */
+.stu.dim{opacity:.18;filter:grayscale(1)}
+.stu.dim .gp{background:#48484a!important}
 .stu .gp{position:absolute;top:4px;left:4px;font-size:12px;font-weight:900;
   background:var(--blue);color:#000;border-radius:8px;padding:1px 6px;line-height:1.35}
 .stu .fr{position:absolute;bottom:3px;left:5px;font-size:10px;color:var(--dim);font-weight:600}
@@ -404,10 +407,10 @@ function render(){
   grid.style.gridTemplateRows=`repeat(${Math.ceil(r.length/4)},1fr)`;
   r.forEach(s=>{
     const el=document.createElement('button');
+    const filtering=!grouping&&groupFilter;
+    const inG=filtering&&gOf(s.no)===groupFilter;
     el.className='stu'+(grouping&&sel.has(s.no)?' sel':'')
-      +(!grouping&&groupFilter&&gOf(s.no)===groupFilter?' g':'');
-    /* 左側色條：同組同色，一眼掃得出來 */
-    if(gOf(s.no))el.style.boxShadow=`inset 5px 0 0 ${gColor(gOf(s.no))}`;
+      +(inG?' g':'')+(filtering&&!inG?' dim':'');
     const t=total(s.no),td=todayCount(s.no);
     el.innerHTML=
       (gOf(s.no)?`<div class="gp" style="background:${gColor(gOf(s.no))}">${gOf(s.no)}</div>`:'')+
