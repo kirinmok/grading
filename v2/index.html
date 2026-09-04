@@ -54,17 +54,20 @@ header{
   border:2px solid transparent;
 }
 .stu:active{transform:scale(.94)}
-.stu .no{font-size:12px;color:var(--dim);font-weight:600;line-height:1}
+.stu .no{font-size:clamp(24px,4.6vh,36px);color:#fff;font-weight:900;line-height:1;
+  font-variant-numeric:tabular-nums}
 .stu .nm{font-size:12px;font-weight:600;line-height:1.1;
   max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.stu .sc{font-size:clamp(20px,4.2vh,34px);font-weight:800;color:var(--gold);line-height:1.1}
+.stu .sc{font-size:16px;font-weight:800;color:var(--gold);line-height:1.2}
 .stu .sc.zero{color:#48484a}
 .stu .today{
   position:absolute;top:5px;right:6px;background:var(--green);color:#000;
   font-size:11px;font-weight:800;border-radius:9px;padding:1px 5px;line-height:1.35;
 }
 .stu.g{border-color:var(--blue)}
-.stu .gp{position:absolute;top:5px;left:6px;font-size:11px;color:var(--blue);font-weight:800}
+.stu .gp{position:absolute;top:4px;left:4px;font-size:12px;font-weight:900;
+  background:var(--blue);color:#000;border-radius:8px;padding:1px 6px;line-height:1.35}
+.stu .fr{position:absolute;bottom:3px;left:5px;font-size:10px;color:var(--dim);font-weight:600}
 .stu.sel{border-color:var(--green);background:#1e3a24}
 .stu.sel .no{color:var(--green)}
 #bottom.grouping button{background:var(--card2)}
@@ -177,7 +180,7 @@ td.n{text-align:right;font-variant-numeric:tabular-nums}
    學生表現計分工具 — 本機優先版
    資料全部存在這台裝置的 localStorage，不上傳任何伺服器。
    ========================================================= */
-const VERSION='1.9';
+const VERSION='1.10';
 const BUILT='2026-08-30';
 let CLOUD_VERSION=null;
 /* 雲端只有在 Apps Script 真的改過時才需要重新部署，
@@ -233,11 +236,28 @@ function defaultItems(){
     {id:id(),icon:'🎯',name:'實測達標',tag:'work',v:1,group:false},
     {id:id(),icon:'📄',name:'學習單',tag:'report',v:1,group:false},
     {id:id(),icon:'💭',name:'反思',tag:'reflect',v:1,group:false},
+    {id:id(),icon:'🔍',name:'發現',tag:'reflect',v:2,group:false},
     {id:id(),icon:'📦',name:'器材歸位',tag:'regular',v:1,group:true},
+    {id:id(),icon:'🧹',name:'桌面沒收',tag:'regular',v:-1,group:false},
+    {id:id(),icon:'🚫',name:'違反安全',tag:'regular',v:-2,group:false},
     {id:id(),icon:'⚠️',name:'未整理',tag:'regular',v:-1,group:true}
   ];
 }
+/* 個人扣分項：舊資料的課程只有 group:true 的扣分項，
+   單獨點一個學生時被 filter 掉，所以看起來只能加分。這裡補回去。 */
+function negItems(){
+  return [
+    {id:id(),icon:'🧹',name:'桌面沒收',tag:'regular',v:-1,group:false},
+    {id:id(),icon:'🚫',name:'違反安全',tag:'regular',v:-2,group:false}
+  ];
+}
 function id(){return Math.random().toString(36).slice(2,9)}
+
+/* 組別顏色：同一組同一色，掃過去就認得出來，不用讀數字。
+   八色循環，全部在深底上夠亮、彼此夠遠。 */
+const GCOLORS=['#0a84ff','#ff9f0a','#30d158','#ff375f',
+               '#bf5af2','#64d2ff','#ffd60a','#ff8a5b'];
+function gColor(g){return GCOLORS[(Number(g)-1)%GCOLORS.length]}
 
 const DEFAULT={
   courses:[
@@ -262,6 +282,16 @@ function load(){
 /* v1.4：分組從「學生身上」搬到「課程×班級」。
    舊資料只有一套分組，搬到該班第一個有記錄的課程，其餘課程留空。 */
 function migrate(r){
+  /* v1.10：補個人扣分項。舊課程的扣分項都是 group:true，
+     單獨點一個學生時會被 filter 掉，所以看起來只有加分。 */
+  if(!r.negMigrated){
+    (r.courses||[]).forEach(c=>{
+      c.items=c.items||[];
+      const hasPersonalNeg=c.items.some(i=>i.v<0&&!i.group);
+      if(!hasPersonalNeg)c.items=c.items.concat(negItems());
+    });
+    r.negMigrated=1;
+  }
   if(r.groupsMigrated)return r;
   r.groups=r.groups||{};
   Object.entries(r.rosters||{}).forEach(([cls,list])=>{
@@ -371,10 +401,12 @@ function render(){
     const el=document.createElement('button');
     el.className='stu'+(grouping&&sel.has(s.no)?' sel':'')
       +(!grouping&&groupFilter&&gOf(s.no)===groupFilter?' g':'');
+    /* 左側色條：同組同色，一眼掃得出來 */
+    if(gOf(s.no))el.style.boxShadow=`inset 5px 0 0 ${gColor(gOf(s.no))}`;
     const t=total(s.no),td=todayCount(s.no);
     el.innerHTML=
-      (s.from?`<div class="gp" style="color:var(--dim)">${s.from}</div>`
-             :(gOf(s.no)?`<div class="gp">${gOf(s.no)}</div>`:''))+
+      (gOf(s.no)?`<div class="gp" style="background:${gColor(gOf(s.no))}">${gOf(s.no)}</div>`:'')+
+      (s.from?`<div class="fr">${s.from}</div>`:'')+
       (!grouping&&td?`<div class="today">+${td}</div>`:'')+
       `<div class="no">${s.no}</div>`+
       (grouping
