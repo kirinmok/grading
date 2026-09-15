@@ -60,6 +60,13 @@ header{
   max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .stu .sc{font-size:16px;font-weight:800;color:var(--gold);line-height:1.2}
 .stu .sc.zero{color:#48484a}
+/* 本節拿到的符號，不顯示累積數字（數字容易跟座號混，累積看成績頁或長按） */
+.stu .marks{display:flex;flex-wrap:wrap;justify-content:center;gap:2px;min-height:20px;line-height:1;font-size:15px;max-width:100%}
+.stu .marks span{display:inline-block}
+.stu .marks .neg{filter:grayscale(1) brightness(.8);position:relative}
+.stu .marks .neg::after{content:'';position:absolute;left:-1px;right:-1px;top:50%;height:2px;background:var(--red);transform:rotate(-20deg)}
+.stu .marks .more{font-size:10px;color:var(--dim);font-weight:700;align-self:center}
+.stu .marks .none{color:#3a3a3c;font-size:11px}
 .stu .today{
   position:absolute;top:5px;right:6px;background:var(--green);color:#000;
   font-size:11px;font-weight:800;border-radius:9px;padding:1px 5px;line-height:1.35;
@@ -353,6 +360,15 @@ function sessionKey(){
 function recs(){return D.records.filter(r=>r.course===D.cur.course&&r.cls===D.cur.cls)}
 function total(no){return recs().filter(r=>r.no===no).reduce((s,r)=>s+r.v,0)}
 function todayCount(no){const k=sessionKey();return recs().filter(r=>r.no===no&&r.session===k).reduce((s,r)=>s+r.v,0)}
+/* 本節這個人拿到的符號串：用項目圖示，扣分打斜線，超過 6 個收成 +n */
+function todayMarks(no){
+  const k=sessionKey(),c=course();
+  const rs=recs().filter(r=>r.no===no&&r.session===k);
+  if(!rs.length)return '<span class="none">·</span>';
+  const icon=n=>(c.items.find(i=>i.name===n)||{}).icon||(n==='遲到'?'⏰':'⭐');
+  const shown=rs.slice(0,6).map(r=>`<span class="${r.v<0?'neg':''}">${icon(r.name)}</span>`).join('');
+  return shown+(rs.length>6?`<span class="more">+${rs.length-6}</span>`:'');
+}
 
 function buzz(ms){try{navigator.vibrate&&navigator.vibrate(ms)}catch(e){}}
 let tt;
@@ -430,15 +446,13 @@ function render(){
     const inG=filtering&&gOf(s.no)===groupFilter;
     el.className='stu'+(grouping&&sel.has(s.no)?' sel':'')
       +(inG?' g':'')+(filtering&&!inG?' dim':'');
-    const t=total(s.no),td=todayCount(s.no);
     el.innerHTML=
       (gOf(s.no)?`<div class="gp" style="background:${gColor(gOf(s.no))}">${gOf(s.no)}</div>`:'')+
       (s.from?`<div class="fr">${s.from}</div>`:'')+
-      (!grouping&&td?`<div class="today">+${td}</div>`:'')+
       `<div class="no">${s.no}</div>`+
       (grouping
         ? `<div class="sc${sel.has(s.no)?'':' zero'}">${sel.has(s.no)?'✓':'·'}</div>`
-        : `<div class="sc${t?'':' zero'}">${t}</div>`)+
+        : `<div class="marks">${todayMarks(s.no)}</div>`)+
       `<div class="nm">${s.name||''}</div>`;
     let hold=null,held=false;
     const startHold=()=>{held=false;hold=setTimeout(()=>{held=true;buzz(18);openHistory(s.no)},480)};
