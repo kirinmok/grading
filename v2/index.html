@@ -1059,7 +1059,7 @@ function setupRoster(){
 
 /* 一行一個項目：「圖示 名稱 分值 [整組] [歸類]」，圖示與歸類可省略。
    歸類接受 平常/作品/學習單/反思 或 regular/work/report/reflect，預設平常。 */
-const TAG_ALIAS={平常:'regular',作品:'work',實作:'work',學習單:'report',報告:'report',反思:'reflect',心得:'reflect',發表:'reflect'};
+const TAG_ALIAS={平常:'regular',作品:'work',實作:'work',學習單:'report',報告:'report',反思:'reflect',心得:'reflect',發表:'reflect',環境整理:'reflect',收拾:'reflect'};
 function parseItemLines(txt){
   const out=[];
   txt.split(/\n/).map(s=>s.trim()).filter(Boolean).forEach(line=>{
@@ -1082,8 +1082,8 @@ const ITEM_PRESET=`🙋 發言 1
 🧑‍🏫 教會別組 2
 🔮 先猜再做 1 整組 作品
 🎯 實測達標 1 整組 作品
-🧾 講得出證據 2 反思
-🪑 座位收拾好 1 整組
+🧾 講得出證據 2 作品
+🪑 座位收拾好 1 整組 環境整理
 ⏰ 遲到 -1
 🚫 違反安全 -2`;
 
@@ -1146,7 +1146,7 @@ function setupItems(){
       <label style="margin:0;display:flex;align-items:center;gap:6px;font-size:14px"><input type="checkbox" id="iall">套用到全部課程</label></div>
     <button class="btn" data-replace>🔁 換成這份清單（不動計分）</button>
     <div style="color:var(--dim);font-size:12px;margin-top:6px;line-height:1.6">
-      歸類可寫 平常／作品／學習單／反思，不寫就是平常。已經打過的分數跟著記錄走，換項目不會消失。</div>
+      歸類可寫 平常／作品／學習單／環境整理，不寫就是平常。第四項在「四項成績」把名稱改成環境整理。已經打過的分數跟著記錄走，換項目不會消失。</div>
     <div class="closebar"><button data-close>關閉</button></div>`,draw);
 }
 
