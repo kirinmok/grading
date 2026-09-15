@@ -597,10 +597,17 @@ async function cloudRestore(){
 }
 
 /* 名冊與分組上雲：整批覆寫 Students / Groups 兩張表，不碰加分記錄 */
-async function uploadRoster(){
+/* 名單一存檔就自動上傳（延遲 3 秒合併連續修改），改名不用再手動按 */
+let rosterTimer=null;
+function scheduleRosterUpload(){
+  if(!(D.sync&&D.sync.url))return;
+  clearTimeout(rosterTimer);
+  rosterTimer=setTimeout(()=>uploadRoster(true),3000);
+}
+async function uploadRoster(silent){
   const url=D.sync&&D.sync.url;
-  if(!url){toast('先設定同步網址',1);return}
-  toast('上傳中…');
+  if(!url){if(!silent)toast('先設定同步網址',1);return}
+  if(!silent)toast('上傳中…');
   const students=[],groups=[];
   Object.entries(D.rosters).forEach(([cls,list])=>{
     list.forEach(s=>{
@@ -630,8 +637,8 @@ async function uploadRoster(){
     if(!out||out.ok!==true)throw new Error(out&&out.error||'伺服器沒說 ok');
     if(out.students===undefined)throw new Error('Apps Script 還是舊版，要重新部署');
     D.sync.rosterAt=Date.now();save();
-    toast(`已上傳 ${out.students} 人、${out.groups} 筆分組`);
-  }catch(e){toast('上傳失敗：'+String(e.message||e).slice(0,30),1)}
+    toast(silent?`名單已同步雲端（${out.students} 人）`:`已上傳 ${out.students} 人、${out.groups} 筆分組`);
+  }catch(e){if(!silent)toast('上傳失敗：'+String(e.message||e).slice(0,30),1)}
 }
 
 /* ---------------- 闖關頁 ---------------- */
@@ -1073,7 +1080,7 @@ function setupRoster(){
         from:(el.querySelector(`[data-fm="${s.no}"]`)?.value||'').trim()};
     });
     el.querySelector('[data-save]').onclick=()=>{
-      D.rosters[D.cur.cls]=collect();save();close();render();toast('名單已儲存');
+      D.rosters[D.cur.cls]=collect();save();close();render();toast('名單已儲存');scheduleRosterUpload();
     };
     el.querySelector('[data-add]').onclick=()=>{
       const cur=collect();
@@ -1340,6 +1347,7 @@ function setupData(){
         if(!n&&!nc)throw 0;
         save();close();render();
         toast(`已匯入 ${n} 個班級${nc?`、${nc} 個課程`:''}`);
+        scheduleRosterUpload();
       }catch(e){toast('讀不到名單：'+(e.message||'格式怪怪的').slice(0,40),1)}
     };
     el.querySelector('[data-rs]').onclick=()=>{
