@@ -909,13 +909,16 @@ function openCalc(){
   const c=course(),r=roster(D.cur.cls),rs=recs();
   const keys=Object.keys(TAGS);
   /* 第四項（場地復原）是習慣不是能力，滿次數另設，預設 16（18 堂減 2） */
-  const base=c.base??75, full=c.fullAt??8, full4=c.fullAt4??16, bonus=100-base;
+  const base=c.base??75, full=c.fullAt??8, fullW=c.fullAtW??10, full4=c.fullAt4??16, bonus=100-base;
   const rows=r.map(s=>{
     const o={s};
     keys.forEach(k=>o[k]=rs.filter(x=>x.no===s.no&&x.tag===k).reduce((a,b)=>a+b.v,0));
     // 絕對標準：累積達 full 次即滿分，不跟全班比
     o.regularScore=s.name
       ? Math.min(100,Math.round(base+bonus*Math.max(0,o.regular)/full))
+      : '—';
+    o.workScore=s.name
+      ? Math.min(100,Math.round(base+bonus*Math.max(0,o.work)/fullW))
       : '—';
     o.reflectScore=s.name
       ? Math.min(100,Math.round(base+bonus*Math.max(0,o.reflect)/full4))
@@ -929,6 +932,8 @@ function openCalc(){
       <input id="cBase" type="number" value="${base}" min="0" max="99" style="width:64px;padding:8px">
       <label style="margin:0;flex:none">${tagName('regular',c)}滿</label>
       <input id="cFull" type="number" value="${full}" min="1" max="60" style="width:64px;padding:8px">
+      <label style="margin:0;flex:none">${tagName('work',c)}滿</label>
+      <input id="cFullW" type="number" value="${fullW}" min="1" max="60" style="width:64px;padding:8px">
       <label style="margin:0;flex:none">${tagName('reflect',c)}滿</label>
       <input id="cFull4" type="number" value="${full4}" min="1" max="60" style="width:64px;padding:8px">
       <button class="btn" data-cfg style="margin:0;flex:1;padding:9px">套用</button>
@@ -936,11 +941,12 @@ function openCalc(){
     <table><thead><tr><th>座號</th><th>姓名</th>
       ${keys.map(k=>`<th class="n">${tagName(k,c)}</th>`).join('')}</tr></thead>
     <tbody>${rows.map(o=>`<tr><td>${o.s.no}</td><td>${o.s.name||''}</td>
-      <td class="n"><b>${o.regularScore}</b></td><td class="n">${o.work}</td>
+      <td class="n"><b>${o.regularScore}</b><small style="color:var(--dim)"> (${o.regular})</small></td><td class="n"><b>${o.workScore}</b><small style="color:var(--dim)"> (${o.work})</small></td>
       <td class="n">${o.report}</td><td class="n"><b>${o.reflectScore}</b><small style="color:var(--dim)"> (${o.reflect})</small></td></tr>`).join('')}</tbody></table>
     <div style="color:var(--dim);font-size:12px;margin-top:10px;line-height:1.7">
-      ${tagName('regular',c)}與${tagName('reflect',c)}已換算成 ${base}–100 分，
-      採絕對標準：${tagName('regular',c)}累積 ${full} 次、${tagName('reflect',c)}累積 ${full4} 次即滿分，不跟同班比。中間兩欄是原始累積次數，
+      三個計次欄已換算成 ${base}–100 分（括號是原始次數），採絕對標準：
+      ${tagName('regular',c)} ${full} 次、${tagName('work',c)} ${fullW} 次、${tagName('reflect',c)} ${full4} 次即滿分，不跟同班比。
+      ${tagName('report',c)}那欄只是次數，分數看各份表單的試算表，
       要打成分數時走五等第：<b style="color:#fff">A95 / B90 / C85 / D80 / E75</b>，
       水陸車微調 ±3、其他 ±4；有交起跳 75，未交才 0（公差／資源班缺項留白不計 0）。<br>
       學期 ＝ 平常×0.3 ＋ 分組報告×0.2 ＋ 最終作品×0.3 ＋ 學習單×0.2</div>
@@ -950,6 +956,7 @@ function openCalc(){
     el.querySelector('[data-cfg]').onclick=()=>{
       c.base=Math.max(0,Math.min(99,+el.querySelector('#cBase').value||75));
       c.fullAt=Math.max(1,Math.min(60,+el.querySelector('#cFull').value||8));
+      c.fullAtW=Math.max(1,Math.min(60,+el.querySelector('#cFullW').value||10));
       c.fullAt4=Math.max(1,Math.min(60,+el.querySelector('#cFull4').value||16));
       save();close();openCalc();toast(`${c.base} 起跳，${tagName('regular',c)} 滿 ${c.fullAt} 次、${tagName('reflect',c)} 滿 ${c.fullAt4} 次`);
     };
