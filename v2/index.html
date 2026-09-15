@@ -447,7 +447,7 @@ function render(){
     el.className='stu'+(grouping&&sel.has(s.no)?' sel':'')
       +(inG?' g':'')+(filtering&&!inG?' dim':'');
     el.innerHTML=
-      (gOf(s.no)?`<div class="gp" style="background:${gColor(gOf(s.no))}">${gOf(s.no)}</div>`:'')+
+      (gOf(s.no)?`<div class="gp" style="background:${gColor(gOf(s.no))};width:8px;height:8px;border-radius:50%;padding:0;font-size:0"></div>`:'')+
       (s.from?`<div class="fr">${s.from}</div>`:'')+
       `<div class="no">${s.no}</div>`+
       (grouping
