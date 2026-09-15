@@ -183,8 +183,8 @@ td.n{text-align:right;font-variant-numeric:tabular-nums}
    學生表現計分工具 — 本機優先版
    資料全部存在這台裝置的 localStorage，不上傳任何伺服器。
    ========================================================= */
-const VERSION='1.11';
-const BUILT='2026-08-30';
+const VERSION='1.12';
+const BUILT='2026-09-15';
 let CLOUD_VERSION=null;
 /* 雲端只有在 Apps Script 真的改過時才需要重新部署，
    所以不比對「相等」，只檢查雲端有沒有舊到不支援目前的功能 */
@@ -1057,27 +1057,81 @@ function setupRoster(){
   });
 }
 
+/* 一行一個項目：「圖示 名稱 分值 [整組] [歸類]」，圖示與歸類可省略。
+   歸類接受 平常/作品/學習單/反思 或 regular/work/report/reflect，預設平常。 */
+const TAG_ALIAS={平常:'regular',作品:'work',實作:'work',學習單:'report',報告:'report',反思:'reflect',心得:'reflect',發表:'reflect'};
+function parseItemLines(txt){
+  const out=[];
+  txt.split(/\n/).map(s=>s.trim()).filter(Boolean).forEach(line=>{
+    const parts=line.split(/\s+/);
+    let icon='⭐';
+    if(parts.length>1&&!/^[-+]?\d+$/.test(parts[0])&&/^\p{Extended_Pictographic}/u.test(parts[0]))icon=parts.shift();
+    const name=parts.shift();if(!name)return;
+    let v=1,group=false,tag='regular';
+    parts.forEach(p=>{
+      if(/^[-+]?\d+$/.test(p))v=+p;
+      else if(p==='整組'||p==='group')group=true;
+      else if(TAG_ALIAS[p])tag=TAG_ALIAS[p];
+      else if(TAGS[p])tag=p;
+    });
+    out.push({id:id(),icon,name,tag,v,group});
+  });
+  return out;
+}
+const ITEM_PRESET=`🙋 發言 1
+🧑‍🏫 教會別組 2
+🔮 先猜再做 1 整組 作品
+🎯 實測達標 1 整組 作品
+🧾 講得出證據 2 反思
+🪑 座位收拾好 1 整組
+⏰ 遲到 -1
+🚫 違反安全 -2`;
+
 function setupItems(){
   const c=course();
   const draw=el=>{
+    const q=s=>el.querySelector(s);
     el.querySelectorAll('[data-del]').forEach(b=>b.onclick=()=>{
       c.items=c.items.filter(i=>i.id!==b.dataset.del);save();close();setupItems();
     });
-    el.querySelector('[data-add]').onclick=()=>{
-      const q=s=>el.querySelector(s);
+    /* 點分值直接改，不用刪了重加 */
+    el.querySelectorAll('[data-val]').forEach(b=>b.onclick=()=>{
+      const it=c.items.find(i=>i.id===b.dataset.val);if(!it)return;
+      const r=prompt(`「${it.name}」改成幾分？（負數就是扣分）`,it.v);
+      if(r===null)return;
+      const v=parseInt(r,10);if(isNaN(v)||v===0)return toast('要是非 0 的整數',1);
+      it.v=v;save();close();setupItems();toast(`${it.name} → ${v>0?'+':''}${v}`);
+    });
+    /* 點「整組／個人」切換 */
+    el.querySelectorAll('[data-grp]').forEach(b=>b.onclick=()=>{
+      const it=c.items.find(i=>i.id===b.dataset.grp);if(!it)return;
+      it.group=!it.group;save();close();setupItems();toast(`${it.name}：${it.group?'整組':'個人'}`);
+    });
+    q('[data-add]').onclick=()=>{
       const nm=q('#inm').value.trim();if(!nm)return toast('要有名稱',1);
       c.items.push({id:id(),icon:q('#iic').value.trim()||'⭐',name:nm,
         tag:q('#itag').value,v:+q('#ival').value||1,group:q('#igrp').value==='1'});
       save();close();setupItems();toast('已新增');
     };
+    q('[data-preset]').onclick=()=>{q('#ilist').value=ITEM_PRESET;};
+    q('[data-replace]').onclick=()=>{
+      const list=parseItemLines(q('#ilist').value);
+      if(!list.length)return toast('清單是空的',1);
+      const all=q('#iall').checked;
+      const targets=all?D.courses:[c];
+      if(!confirm(`用這 ${list.length} 個項目換掉${all?'全部 '+targets.length+' 門課':'這門課'}現有的項目？\n已經打的分數不會動。`))return;
+      targets.forEach(t=>{t.items=list.map(i=>({...i,id:id()}));});
+      save();close();setupItems();toast(`已換成 ${list.length} 個項目${all?'（全部課程）':''}`);
+    };
   };
-  sheet(`<h3>🏷️ ${c.icon} ${c.name} 的加分項目<span>每個項目掛一個歸類，期末自動分堆</span></h3>
+  sheet(`<h3>🏷️ ${c.icon} ${c.name} 的加分項目<span>點分值可以改；點「整組／個人」可以切換</span></h3>
     ${c.items.map(i=>`<div class="row"><span style="font-size:19px">${i.icon}</span>
-      <b>${i.name}${i.group?' <small style="color:var(--blue)">整組</small>':''}</b>
+      <b>${i.name}</b>
+      <span class="tag" data-grp="${i.id}" style="cursor:pointer;color:${i.group?'var(--blue)':'var(--dim)'}">${i.group?'整組':'個人'}</span>
       <span class="tag">${tagName(i.tag,c)}</span>
-      <span style="font-weight:800;color:${i.v<0?'var(--red)':'var(--gold)'}">${i.v>0?'+':''}${i.v}</span>
+      <span data-val="${i.id}" style="font-weight:800;cursor:pointer;padding:2px 8px;border:1px solid var(--line);border-radius:8px;color:${i.v<0?'var(--red)':'var(--gold)'}">${i.v>0?'+':''}${i.v}</span>
       <span class="x" data-del="${i.id}">✕</span></div>`).join('')}
-    <label>新增項目</label>
+    <label>新增一個</label>
     <div style="display:flex;gap:7px"><input id="iic" placeholder="🙋" style="width:64px;text-align:center">
       <input id="inm" placeholder="項目名稱"></div>
     <div style="display:flex;gap:7px;margin-top:7px">
@@ -1085,6 +1139,14 @@ function setupItems(){
       <input id="ival" type="number" value="1" style="width:76px">
       <select id="igrp"><option value="0">個人</option><option value="1">整組</option></select></div>
     <button class="btn" data-add>新增</button>
+    <label style="margin-top:14px">一次換掉整份清單</label>
+    <textarea id="ilist" rows="6" placeholder="一行一個：圖示 名稱 分值 [整組] [歸類]&#10;🪑 座位收拾好 1 整組&#10;⏰ 遲到 -1"></textarea>
+    <div style="display:flex;gap:7px;align-items:center;margin-top:4px">
+      <button class="btn gray" data-preset style="flex:0 0 auto">填入建議的八顆</button>
+      <label style="margin:0;display:flex;align-items:center;gap:6px;font-size:14px"><input type="checkbox" id="iall">套用到全部課程</label></div>
+    <button class="btn" data-replace>🔁 換成這份清單（不動計分）</button>
+    <div style="color:var(--dim);font-size:12px;margin-top:6px;line-height:1.6">
+      歸類可寫 平常／作品／學習單／反思，不寫就是平常。已經打過的分數跟著記錄走，換項目不會消失。</div>
     <div class="closebar"><button data-close>關閉</button></div>`,draw);
 }
 
