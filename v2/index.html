@@ -300,6 +300,10 @@ function migrate(r){
     });
     r.negMigrated=2;
   }
+  /* v1.12：四項改成 平常／實作／學習單／場地復原。
+     舊記錄依「項目名稱」重新歸類，分數不動，只換它算進哪一堆。
+     沒對到的名稱保留原歸類。可在 ⚙️ 資料頁重跑。 */
+  if((r.recatMigrated||0) < 1){ remapRecords(r); r.recatMigrated=1; }
   if(r.groupsMigrated)return r;
   r.groups=r.groups||{};
   Object.entries(r.rosters||{}).forEach(([cls,list])=>{
@@ -315,6 +319,21 @@ function migrate(r){
   });
   r.groupsMigrated=1;
   return r;
+}
+/* 舊項目名稱 → 新四堆。regular 平常／work 實作／report 學習單／reflect 場地復原 */
+const RECAT={
+  發言:'regular',協作:'regular',反思:'regular',上課亂玩:'regular',遲到:'regular',違反安全:'regular',教會別組:'regular',
+  實作進度:'work',實測達標:'work',發現:'work',先猜再做:'work',講得出證據:'work',帶齊材料:'work',
+  學習單:'report',
+  器材歸位:'reflect',座位沒收拾:'reflect',器材沒歸位:'reflect',未整理:'reflect',座位收拾好:'reflect',場地復原:'reflect'
+};
+function remapRecords(r){
+  let n=0;
+  (r.records||[]).forEach(x=>{
+    const t=RECAT[x.name]; if(t&&x.tag!==t){x.tag=t;n++;}
+  });
+  (r.courses||[]).forEach(c=>(c.items||[]).forEach(i=>{const t=RECAT[i.name];if(t)i.tag=t;}));
+  return n;
 }
 function save(){localStorage.setItem(LS,JSON.stringify(D))}
 
@@ -1246,6 +1265,7 @@ function setupData(){
     <textarea id="rs" rows="5" placeholder="801&#10;1 林宏峻&#10;2 林建志&#10;&#10;802&#10;1 江秉恩"></textarea>
     <button class="btn" data-imp>👥 只匯入名單（不動計分）</button>
     <button class="btn gray" data-rs>♻️ 完整還原（會覆蓋全部）</button>
+    <button class="btn gray" data-recat>🗂️ 舊分數重新歸類成四堆（分數不動）</button>
     <button class="btn gray" data-sw>🔄 強制更新程式（不動名單與計分）</button>
     <div style="color:var(--dim);font-size:12px;margin:-2px 0 10px;line-height:1.6">
       改版之後手機還是舊畫面、按「檢查更新」又說已是最新，就按這個。
@@ -1254,6 +1274,9 @@ function setupData(){
     <div class="closebar"><button data-close>關閉</button></div>`,el=>{
     /* 強制更新：Service Worker 卡舊版時的逃生門。
        只清離線快取，localStorage（名單與計分）完全不碰。 */
+    el.querySelector('[data-recat]').onclick=()=>{
+      const n=remapRecords(D);save();scheduleSync();toast(`重新歸類 ${n} 筆，分數沒動`);
+    };
     el.querySelector('[data-sw]').onclick=async()=>{
       if(!confirm('清掉離線快取並重新載入？\n名單和計分不會不見。'))return;
       try{
