@@ -204,7 +204,7 @@ td.n{text-align:right;font-variant-numeric:tabular-nums}
    學生表現計分工具 — 本機優先版
    資料全部存在這台裝置的 localStorage，不上傳任何伺服器。
    ========================================================= */
-const VERSION='1.13';
+const VERSION='1.14';
 const BUILT='2026-09-15';
 let CLOUD_VERSION=null;
 /* 雲端只有在 Apps Script 真的改過時才需要重新部署，
@@ -299,12 +299,45 @@ const DEFAULT={
   size:20
 };
 
+/* 舊項目名稱 → 新四堆。regular 平常／work 實作／report 學習單／reflect 場地復原 */
+const RECAT={
+  發言:'regular',協作:'regular',反思:'regular',上課亂玩:'regular',遲到:'regular',違反安全:'regular',教會別組:'regular',
+  實作進度:'work',實測達標:'work',發現:'work',先猜再做:'work',講得出證據:'work',帶齊材料:'work',
+  學習單:'report',
+  器材歸位:'reflect',座位沒收拾:'reflect',器材沒歸位:'reflect',未整理:'reflect',座位收拾好:'reflect',場地復原:'reflect'
+};
+function remapRecords(r){
+  let n=0;
+  (r.records||[]).forEach(x=>{
+    const t=RECAT[x.name]; if(t&&x.tag!==t){x.tag=t;n++;}
+  });
+  (r.courses||[]).forEach(c=>(c.items||[]).forEach(i=>{const t=RECAT[i.name];if(t)i.tag=t;}));
+  return n;
+}
+/* 存課程或匯入時，若某課程少掉「已經有分數」的班級，先問一次。
+   班級消失不會刪記錄，但老師會以為分數不見了（2026-09-15 AI 專題只剩兩班事件）。 */
+function guardClassLoss(oldCourses,nextCourses){
+  const lost=[];
+  oldCourses.forEach(o=>{
+    const n=nextCourses.find(x=>x.name===o.name||x.id===o.id); if(!n)return;
+    (o.classes||[]).forEach(cls=>{
+      if(n.classes.includes(cls))return;
+      const has=D.records.some(r=>r.course===o.id&&r.cls===cls);
+      if(has)lost.push(o.name+' '+cls);
+    });
+  });
+  if(!lost.length)return true;
+  return confirm('這些班級已經有分數，存檔後會從課程消失（分數保留但看不到）：\n'+lost.join('、')+'\n\n確定要拿掉？');
+}
 let D=load();
 function load(){
-  try{
-    const r=JSON.parse(localStorage.getItem(LS));
-    if(r&&r.courses)return migrate(r);
-  }catch(e){}
+  let r=null;
+  try{ r=JSON.parse(localStorage.getItem(LS)); }catch(e){ r=null; }
+  if(r&&r.courses){
+    /* 遷移炸掉時絕不退回預設（那會在下次存檔把真資料蓋掉）。先原樣使用並大聲報。 */
+    try{ return migrate(r); }
+    catch(e){ setTimeout(()=>alert('資料遷移出錯，已保留原資料未動：\n'+String(e).slice(0,120)+'\n請截圖給小可'),500); return r; }
+  }
   return structuredClone(DEFAULT);
 }
 /* v1.4：分組從「學生身上」搬到「課程×班級」。
@@ -340,36 +373,6 @@ function migrate(r){
   });
   r.groupsMigrated=1;
   return r;
-}
-/* 舊項目名稱 → 新四堆。regular 平常／work 實作／report 學習單／reflect 場地復原 */
-const RECAT={
-  發言:'regular',協作:'regular',反思:'regular',上課亂玩:'regular',遲到:'regular',違反安全:'regular',教會別組:'regular',
-  實作進度:'work',實測達標:'work',發現:'work',先猜再做:'work',講得出證據:'work',帶齊材料:'work',
-  學習單:'report',
-  器材歸位:'reflect',座位沒收拾:'reflect',器材沒歸位:'reflect',未整理:'reflect',座位收拾好:'reflect',場地復原:'reflect'
-};
-function remapRecords(r){
-  let n=0;
-  (r.records||[]).forEach(x=>{
-    const t=RECAT[x.name]; if(t&&x.tag!==t){x.tag=t;n++;}
-  });
-  (r.courses||[]).forEach(c=>(c.items||[]).forEach(i=>{const t=RECAT[i.name];if(t)i.tag=t;}));
-  return n;
-}
-/* 存課程或匯入時，若某課程少掉「已經有分數」的班級，先問一次。
-   班級消失不會刪記錄，但老師會以為分數不見了（2026-09-15 AI 專題只剩兩班事件）。 */
-function guardClassLoss(oldCourses,nextCourses){
-  const lost=[];
-  oldCourses.forEach(o=>{
-    const n=nextCourses.find(x=>x.name===o.name||x.id===o.id); if(!n)return;
-    (o.classes||[]).forEach(cls=>{
-      if(n.classes.includes(cls))return;
-      const has=D.records.some(r=>r.course===o.id&&r.cls===cls);
-      if(has)lost.push(o.name+' '+cls);
-    });
-  });
-  if(!lost.length)return true;
-  return confirm('這些班級已經有分數，存檔後會從課程消失（分數保留但看不到）：\n'+lost.join('、')+'\n\n確定要拿掉？');
 }
 function save(){localStorage.setItem(LS,JSON.stringify(D))}
 
@@ -632,9 +635,15 @@ async function cloudRestore(){
         try{
           const o=JSON.parse(row[5]);
           if(!o||!o.courses)throw new Error('備份內容不完整');
-          D={...structuredClone(DEFAULT),...o};
+          /* 記錄用合併不用覆蓋：備份之後才打的分（例如資料被重設後那幾堂）不能丟 */
+          const cur=D.records||[], seen=new Set((o.records||[]).map(r=>r.t+'|'+r.no+'|'+r.name));
+          const extra=cur.filter(r=>!seen.has(r.t+'|'+r.no+'|'+r.name));
+          const merged={...structuredClone(DEFAULT),...o};
+          merged.records=(o.records||[]).concat(extra);
+          /* 課程 id 若跟備份對不上（重設後是 c1/c2/c3），把多出來的記錄對到同名課程 */
+          D=migrate(merged);
           save();render();
-          toast(`已還原 ${o.records?o.records.length:0} 筆記錄`);
+          toast(`已還原 ${(o.records||[]).length} 筆，另保留備份後新打的 ${extra.length} 筆`);
         }catch(e){toast('還原失敗：'+String(e.message||e).slice(0,28),1)}
       });
     });
