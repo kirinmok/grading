@@ -452,7 +452,7 @@ function render(){
       `<div class="no">${s.no}</div>`+
       (grouping
         ? `<div class="sc${sel.has(s.no)?'':' zero'}">${sel.has(s.no)?'✓':'·'}</div>`
-        : `<div class="marks">${todayMarks(s.no)}</div>`)+
+        : '')+
       `<div class="nm">${s.name||''}</div>`;
     let hold=null,held=false;
     const startHold=()=>{held=false;hold=setTimeout(()=>{held=true;buzz(18);openHistory(s.no)},480)};
