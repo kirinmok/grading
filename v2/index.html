@@ -204,7 +204,7 @@ td.n{text-align:right;font-variant-numeric:tabular-nums}
    學生表現計分工具 — 本機優先版
    資料全部存在這台裝置的 localStorage，不上傳任何伺服器。
    ========================================================= */
-const VERSION='1.12';
+const VERSION='1.13';
 const BUILT='2026-09-15';
 let CLOUD_VERSION=null;
 /* 雲端只有在 Apps Script 真的改過時才需要重新部署，
@@ -355,6 +355,21 @@ function remapRecords(r){
   });
   (r.courses||[]).forEach(c=>(c.items||[]).forEach(i=>{const t=RECAT[i.name];if(t)i.tag=t;}));
   return n;
+}
+/* 存課程或匯入時，若某課程少掉「已經有分數」的班級，先問一次。
+   班級消失不會刪記錄，但老師會以為分數不見了（2026-09-15 AI 專題只剩兩班事件）。 */
+function guardClassLoss(oldCourses,nextCourses){
+  const lost=[];
+  oldCourses.forEach(o=>{
+    const n=nextCourses.find(x=>x.name===o.name||x.id===o.id); if(!n)return;
+    (o.classes||[]).forEach(cls=>{
+      if(n.classes.includes(cls))return;
+      const has=D.records.some(r=>r.course===o.id&&r.cls===cls);
+      if(has)lost.push(o.name+' '+cls);
+    });
+  });
+  if(!lost.length)return true;
+  return confirm('這些班級已經有分數，存檔後會從課程消失（分數保留但看不到）：\n'+lost.join('、')+'\n\n確定要拿掉？');
 }
 function save(){localStorage.setItem(LS,JSON.stringify(D))}
 
@@ -1288,6 +1303,7 @@ function setupCourses(){
           tagNames:old?old.tagNames:undefined};
       }).filter(c=>c.name&&c.classes.length);
       if(!next.length)return toast('格式怪怪的',1);
+      if(!guardClassLoss(D.courses,next))return;
       D.courses=next;
       if(!D.courses.find(c=>c.id===D.cur.course))D.cur={course:D.courses[0].id,cls:D.courses[0].classes[0]};
       save();close();render();toast('已儲存');
@@ -1365,7 +1381,8 @@ function setupData(){
         if(Array.isArray(o.courses)){
           o.courses.forEach(nx=>{
             const old=D.courses.find(x=>x.name===nx.name);
-            if(old){ old.icon=nx.icon||old.icon; old.classes=nx.classes||old.classes;
+            if(old){ old.icon=nx.icon||old.icon;
+                     if(nx.classes&&guardClassLoss([old],[{...old,classes:nx.classes}]))old.classes=nx.classes;
                      if(nx.tagNames)old.tagNames=nx.tagNames; }
             else D.courses.push({id:'c'+id(),name:nx.name,icon:nx.icon||'📘',
                    classes:nx.classes||[],items:defaultItems(),tagNames:nx.tagNames});
