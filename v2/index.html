@@ -204,7 +204,7 @@ td.n{text-align:right;font-variant-numeric:tabular-nums}
    學生表現計分工具 — 本機優先版
    資料全部存在這台裝置的 localStorage，不上傳任何伺服器。
    ========================================================= */
-const VERSION='1.14';
+const VERSION='1.15';
 const BUILT='2026-09-15';
 let CLOUD_VERSION=null;
 /* 雲端只有在 Apps Script 真的改過時才需要重新部署，
@@ -521,13 +521,14 @@ function render(){
 function openItems(nos,gLabel){
   const c=course();
   const many=nos.length>1;
-  const items=c.items.filter(i=>many? true : !i.group);
+  /* 個人模式也顯示整組項目：點下去加給這個人所在的整組（沒分組就只加他一個） */
+  const items=c.items;
   sheet(`
     <h3>${gLabel||('座號 '+nos[0]+(roster(D.cur.cls).find(s=>s.no===nos[0])?.name?' · '+roster(D.cur.cls).find(s=>s.no===nos[0]).name:''))}
     <span>${c.icon} ${c.name} · ${D.cur.cls}</span></h3>
     <div class="items">${items.map(i=>
       `<button data-i="${i.id}" class="${i.v<0?'neg':''}">${i.icon} ${i.name}
-       <small>${tagName(i.tag,c)} ${i.v>0?'+':''}${i.v}</small></button>`).join('')}</div>
+       <small>${i.group?'整組 ':''}${tagName(i.tag,c)} ${i.v>0?'+':''}${i.v}</small></button>`).join('')}</div>
     ${many?'':`<button class="btn gray" data-hist>📈 看他的戰力與紀錄</button>`}
     <div class="closebar"><button data-close>取消</button></div>
   `,el=>{
@@ -536,11 +537,16 @@ function openItems(nos,gLabel){
       const it=c.items.find(x=>x.id===b.dataset.i);
       const k=sessionKey(),t=Date.now();
       const rst=roster(D.cur.cls);
-      nos.forEach(no=>D.records.push({t,session:k,course:c.id,cls:D.cur.cls,no,
+      let targets=nos;
+      if(!many&&it.group){
+        const g=gOf(nos[0]);
+        if(g){const m=gmap();targets=rst.filter(s=>s.name&&m[s.no]===g).map(s=>s.no);}
+      }
+      targets.forEach(no=>D.records.push({t,session:k,course:c.id,cls:D.cur.cls,no,
         g:gOf(no)||0,
         item:it.id,name:it.name,tag:it.tag,v:it.v}));
       buzz(it.v<0?[18,40,18]:22);scheduleSync();
-      toast(`${it.icon} ${it.name} ${it.v>0?'+':''}${it.v}${many?' × '+nos.length+' 人':''}`,it.v<0);
+      toast(`${it.icon} ${it.name} ${it.v>0?'+':''}${it.v}${targets.length>1?' × '+targets.length+' 人':''}`,it.v<0);
       close();render();
     });
   });
