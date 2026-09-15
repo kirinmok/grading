@@ -67,6 +67,20 @@ header{
 .stu .marks .neg::after{content:'';position:absolute;left:-1px;right:-1px;top:50%;height:2px;background:var(--red);transform:rotate(-20deg)}
 .stu .marks .more{font-size:10px;color:var(--dim);font-weight:700;align-self:center}
 .stu .marks .none{color:#3a3a3c;font-size:11px}
+/* 戰力條（格鬥遊戲血條風） */
+.pw{margin:2px 0 10px;padding:10px 10px 6px;background:#0d0d0f;border:1px solid #2c2c2e;border-radius:12px}
+.pwTop{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px}
+.pwLv{font-weight:900;font-size:14px;color:var(--gold);letter-spacing:.08em}
+.pwNum{font-weight:900;font-size:26px;color:#fff;font-variant-numeric:tabular-nums;text-shadow:0 0 10px rgba(255,197,49,.6)}
+.pwNum small{font-size:10px;color:var(--dim);margin-left:4px;letter-spacing:.15em}
+.pwRow{display:flex;align-items:center;gap:8px;margin:5px 0}
+.pwLab{width:56px;font-size:11px;font-weight:800;text-align:right;letter-spacing:.04em;white-space:nowrap;overflow:hidden}
+.pwBar{flex:1;height:16px;background:#1c1c1e;border:1px solid #3a3a3c;position:relative;overflow:hidden;
+  clip-path:polygon(6px 0,100% 0,calc(100% - 6px) 100%,0 100%)}
+.pwFill{height:100%;transition:width .35s ease}
+.pwSeg{position:absolute;inset:0;background:repeating-linear-gradient(90deg,transparent 0 9%,#0d0d0f 9% 10%)}
+.pwCnt{width:46px;font-size:13px;font-weight:900;color:#fff;font-variant-numeric:tabular-nums}
+.pwCnt small{color:var(--dim);font-weight:600}
 .stu .today{
   position:absolute;top:5px;right:6px;background:var(--green);color:#000;
   font-size:11px;font-weight:800;border-radius:9px;padding:1px 5px;line-height:1.35;
@@ -496,8 +510,10 @@ function openItems(nos,gLabel){
     <div class="items">${items.map(i=>
       `<button data-i="${i.id}" class="${i.v<0?'neg':''}">${i.icon} ${i.name}
        <small>${tagName(i.tag,c)} ${i.v>0?'+':''}${i.v}</small></button>`).join('')}</div>
+    ${many?'':`<button class="btn gray" data-hist>📈 看他的戰力與紀錄</button>`}
     <div class="closebar"><button data-close>取消</button></div>
   `,el=>{
+    const hb=el.querySelector('[data-hist]');if(hb)hb.onclick=()=>{close();openHistory(nos[0]);};
     el.querySelectorAll('[data-i]').forEach(b=>b.onclick=()=>{
       const it=c.items.find(x=>x.id===b.dataset.i);
       const k=sessionKey(),t=Date.now();
@@ -865,11 +881,33 @@ async function delRecord(rec){
 }
 
 /* 長按學生 → 看他的記錄，逐筆刪 */
+/* 四項戰力條，格鬥遊戲血條風：分段、斜切、發光；分數＝該堆累積次數／滿次數 */
+function powerBars(no){
+  const c=course(),rs=recs().filter(x=>x.no===no);
+  const full={regular:c.fullAt??8,work:c.fullAtW??10,report:8,reflect:c.fullAt4??16};
+  const col={regular:'#30d158',work:'#ffc531',report:'#0a84ff',reflect:'#bf5af2'};
+  const keys=['regular','work','report','reflect'];
+  const n={};keys.forEach(k=>n[k]=rs.filter(x=>x.tag===k).reduce((a,b)=>a+b.v,0));
+  const power=keys.reduce((a,k)=>a+Math.max(0,n[k]),0);
+  const lv=Math.min(99,Math.floor(power/4)+1);
+  return `<div class="pw">
+    <div class="pwTop"><span class="pwLv">LV.${lv}</span><span class="pwNum">${power}<small>POWER</small></span></div>
+    ${keys.map(k=>{
+      const pct=Math.max(0,Math.min(100,Math.round(n[k]/full[k]*100)));
+      return `<div class="pwRow">
+        <span class="pwLab">${tagName(k,c)}</span>
+        <div class="pwBar"><div class="pwFill" style="width:${pct}%;background:${col[k]};box-shadow:0 0 8px ${col[k]}"></div><div class="pwSeg"></div></div>
+        <span class="pwCnt">${n[k]}<small>/${full[k]}</small></span>
+      </div>`}).join('')}
+  </div>`;
+}
 function openHistory(no){
   const c=course(),r=roster(D.cur.cls).find(s=>s.no===no)||{},k=sessionKey();
   const mine=recs().filter(x=>x.no===no).sort((a,b)=>b.t-a.t);
   sheet(`<h3>${no} ${r.name||''} 的記錄
       <span>${c.icon} ${c.name} · ${D.cur.cls}　共 ${mine.length} 筆　本節 ${mine.filter(x=>x.session===k).length} 筆</span></h3>
+    ${powerBars(no)}
+    <div class="marks" style="font-size:20px;justify-content:center;gap:4px;margin-bottom:8px">${todayMarks(no)}</div>
     ${mine.length? mine.map((x,i)=>`<div class="row">
         <span style="color:var(--dim);font-size:12px;width:96px">${new Date(x.t).toLocaleString('zh-TW',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'})}</span>
         <b>${x.name}${x.session===k?' <small style="color:var(--green)">本節</small>':''}</b>
