@@ -177,6 +177,10 @@ td.n{text-align:right;font-variant-numeric:tabular-nums}
 }
 #updBar .go{background:rgba(255,255,255,.22);border-radius:10px;padding:8px 14px;font-weight:800}
 #updBar .no{opacity:.7;padding:8px 4px;font-size:13px}
+#syncAlert{flex:none;margin:0 10px 6px;padding:10px 14px;border-radius:12px;font-size:15px;font-weight:800;text-align:left}
+#syncAlert.red{background:rgba(255,69,58,.95);color:#fff}
+#syncAlert.amber{background:#ffc531;color:#000}
+#syncAlert[hidden]{display:none}
 .empty{color:var(--dim);text-align:center;padding:40px 20px;font-size:15px;line-height:1.7}
 </style>
 </head>
@@ -188,6 +192,7 @@ td.n{text-align:right;font-variant-numeric:tabular-nums}
   <button class="iconbtn" id="btnUndo">↩︎</button>
 </header>
 
+<button id="syncAlert" hidden></button>
 <div id="groups"></div>
 <div id="grid"></div>
 
@@ -204,12 +209,12 @@ td.n{text-align:right;font-variant-numeric:tabular-nums}
    學生表現計分工具 — 本機優先版
    資料全部存在這台裝置的 localStorage，不上傳任何伺服器。
    ========================================================= */
-const VERSION='1.15';
-const BUILT='2026-09-15';
+const VERSION='1.16';
+const BUILT='2026-11-10';
 let CLOUD_VERSION=null;
 /* 雲端只有在 Apps Script 真的改過時才需要重新部署，
    所以不比對「相等」，只檢查雲端有沒有舊到不支援目前的功能 */
-const CLOUD_MIN='1.9';
+const CLOUD_MIN='1.11';   // 1.11 起完整備份分段寫入；更舊的雲端仍可同步加分，但備份會失敗
 const verLT=(a,b)=>{const x=String(a).split('.').map(Number),y=String(b).split('.').map(Number);
   for(let i=0;i<Math.max(x.length,y.length);i++){const d=(x[i]||0)-(y[i]||0);if(d)return d<0}
   return false;};
@@ -451,6 +456,11 @@ function render(){
     ? `✕ 分組中 <small>點此離開</small>`
     : `${c.icon} ${c.name} ${D.cur.cls} <small>點此換班</small>`;
 
+  /* 同步或備份壞掉要在主畫面講出來，不能只躲在設定頁（2026-09 壞了兩個月沒人發現） */
+  const al=syncAlert(D,Date.now()), ab=$('#syncAlert');
+  ab.hidden=!al;
+  if(al){ab.className=al.level;ab.textContent=al.msg;}
+
   const r=roster(D.cur.cls);
   const gs=[...new Set(Object.values(gmap()).filter(Boolean))].sort((a,b)=>a-b);
   const gw=$('#groups');
@@ -556,6 +566,7 @@ function openItems(nos,gLabel){
    設計原則：按下去先寫本機，同步是之後的事。同步失敗就留在佇列，
    下次有網路自己補送。網址只存在這台手機，不進程式碼。 */
 let syncing=false;
+let syncGen=0;   // 同步網址換過幾次。送出去之後若網址換了，那次回來的「成功」不算數：它是舊網址說的
 function pending(){return D.records.filter(r=>!r.sy).length}
 
 async function flushSync(silent){
@@ -565,6 +576,7 @@ async function flushSync(silent){
   const todo=D.records.filter(r=>!r.sy);
   if(!todo.length){if(!silent)toast('已經全部同步了');return}
   syncing=true;
+  const gen=syncGen;
   try{
     const rows=todo.map(r=>{
       const c=D.courses.find(x=>x.id===r.course);
@@ -576,13 +588,17 @@ async function flushSync(silent){
       body:JSON.stringify({rows})});
     const out=await res.json();
     if(!out||out.ok!==true)throw new Error(out&&out.error||'伺服器沒說 ok');
+    if(gen!==syncGen||(D.sync&&D.sync.url)!==url)throw new Error('途中換了網址，改送新的');
     todo.forEach(r=>r.sy=1);
     D.sync.lastAt=Date.now();
     save();
     if(!silent)toast(`已同步 ${rows.length} 筆`);
   }catch(e){
     if(!silent)toast('同步失敗：'+String(e.message||e).slice(0,30),1);
-  }finally{syncing=false;render()}
+  }finally{
+    syncing=false;render();
+    if(gen!==syncGen)setTimeout(()=>flushSync(true),0);   // 剛剛被「同步中」擋掉的那次，現在補送到新網址
+  }
 }
 /* 加分後延遲送出，避免連點時一直打網路 */
 let syncTimer=null;
@@ -596,21 +612,113 @@ window.addEventListener('online',()=>flushSync(true));
 /* ---------------- 完整備份與還原 ----------------
    手機掉了 / 換手機 / 重灌，全部從雲端拉回來。
    Backup 分頁存整包 JSON 快照，每次自動備份會新增一列，保留歷史版本。 */
-async function cloudBackup(silent){
+/*<backup-helpers>  這一段是純函式（不碰畫面、不碰網路），tests/ 會直接抽出來測 */
+const SNAP_CHUNK=40000;   // 試算表一格最多 5 萬字。快照超過就寫不進去（2026-09 備份停在 491 筆的原因）
+const DAY=864e5;
+function hashStr(s){let h=5381;for(let i=0;i<s.length;i++)h=((h<<5)+h+s.charCodeAt(i))>>>0;return h.toString(36)}
+function splitSnap(s,size){
+  const out=[];let i=0;
+  while(i<s.length){
+    let j=Math.min(i+size,s.length);
+    const c=s.charCodeAt(j-1);
+    if(j<s.length&&j-1>i&&c>=0xD800&&c<=0xDBFF)j--;   // 不把一個 emoji 切成兩半
+    out.push(s.slice(i,j));i=j;
+  }
+  return out;
+}
+/* 還原＝備份當底，保留備份後才打的記錄；同步設定一律用手機現在的。
+   備份裡存的網址可能早就封存了，蓋回來會讓同步默默失敗（2026-09 事件的起因）。 */
+function mergeRestore(cur,o,def){
+  if(!o||!Array.isArray(o.courses))throw new Error('備份內容不完整');
+  const key=r=>r.t+'|'+r.cls+'|'+r.no+'|'+r.name;
+  const seen=new Set((o.records||[]).map(key));
+  const extra=(cur.records||[]).filter(r=>!seen.has(key(r)));
+  const merged={...structuredClone(def),...o};
+  merged.records=(o.records||[]).concat(extra).map(r=>({...r}));   // 複製一份，不去動手機現有的記錄
+  if(cur.sync&&cur.sync.url){
+    /* 備份裡的「已同步」是對備份當時那個網址說的。網址不同就全部當成沒傳過，
+       讓它重送一次；雲端會用唯一碼去重，重送不會變兩筆。 */
+    if(((o.sync||{}).url)!==cur.sync.url)merged.records.forEach(r=>{delete r.sy});
+    merged.sync={...(o.sync||{}),...cur.sync};
+  }
+  return {merged,restored:(o.records||[]).length,extra:extra.length};
+}
+/* 兩筆是不是同一筆加分。一定要連課程和班級一起比：
+   只比時間、座號、項目的話，別班剛好同鍵的記錄會被一起刪掉。 */
+function sameRecord(a,b){
+  return a.t===b.t&&a.no===b.no&&a.item===b.item&&a.cls===b.cls&&a.course===b.course;
+}
+/* 主畫面要不要亮警示。只量事實：有沒有網址、最舊的未同步記錄多久了、上次備份多久了。 */
+function syncAlert(d,now){
+  const recs=d.records||[], s=d.sync||{};
+  if(!recs.length)return null;
+  if(!s.url)return {level:'amber',msg:'☁️ 還沒設定雲端同步，分數只存在這台手機。點此設定'};
+  const late=recs.filter(r=>!r.sy&&now-(Number(r.t)||now)>DAY).length;
+  if(late)return {level:'red',msg:`🔴 有 ${late} 筆分數超過一天沒傳上雲端。點此處理`};
+  const b=s.backupAt||0;
+  if(now-b>7*DAY)return {level:'amber',
+    msg:b?`🟡 完整備份已 ${Math.floor((now-b)/DAY)} 天沒成功。點此處理`:'🟡 完整備份從來沒成功過。點此處理'};
+  return null;
+}
+/*</backup-helpers>*/
+$('#syncAlert').onclick=()=>setupSync();
+/* App 常常一整天掛在背景沒重新載入。切回來時重算警示、補送沒傳的、補做當天的備份。 */
+function dailyBackup(){
+  const last=(D.sync&&D.sync.backupAt)||0;
+  if(D.sync&&D.sync.url&&Date.now()-last>DAY)cloudBackup(true);
+}
+document.addEventListener('visibilitychange',()=>{
+  if(document.hidden)return;
+  render();flushSync(true);dailyBackup();
+});
+
+/* 同一時間只跑一份備份。切回前景、手動按、還原前都會叫它，
+   網路慢時若各跑各的，會一口氣寫進好幾份、把雲端保留的舊備份全擠掉。 */
+let backupRun=null;
+function cloudBackup(silent){
+  if(backupRun){if(!silent)toast('備份進行中，請稍等');return backupRun}
+  backupRun=doBackup(silent).finally(()=>{backupRun=null});
+  return backupRun;
+}
+/* 蓋住整個畫面、擋掉所有點按。傳文字＝鎖住，傳 null＝解開。 */
+function busy(msg){
+  let el=document.getElementById('busy');
+  if(!msg){if(el)el.remove();return}
+  if(!el){
+    el=document.createElement('div');el.id='busy';
+    el.style.cssText='position:fixed;inset:0;z-index:300;background:rgba(0,0,0,.82);color:#fff;'
+      +'display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:800;padding:24px;text-align:center';
+    document.body.appendChild(el);
+  }
+  el.textContent=msg;
+}
+/* 還原前要的是「現在這一刻」的備份。正在跑的那份是更早送出的，內容可能已經舊了，
+   所以等它跑完，再另外備份一次。 */
+async function freshBackup(){
+  while(backupRun){try{await backupRun}catch(e){}}
+  return cloudBackup(true);
+}
+async function doBackup(silent){
   const url=D.sync&&D.sync.url;
   if(!url){if(!silent)toast('先設定同步網址',1);return false}
   try{
-    const snap=JSON.stringify(D);
+    /* 先問雲端版本。舊版雲端收到分段備份會寫進一列空的，還會把舊備份擠掉，所以不送。 */
+    const vr=await fetch(url,{cache:'no-store'}), vj=await vr.json();
+    CLOUD_VERSION=vj.version||'?';
+    if(verLT(CLOUD_VERSION,CLOUD_MIN))throw new Error(`雲端 v${CLOUD_VERSION} 要更新到 ${CLOUD_MIN}`);
+    const snap=JSON.stringify(D), parts=splitSnap(snap,SNAP_CHUNK);
     const res=await fetch(url,{method:'POST',headers:{'Content-Type':'text/plain'},
       body:JSON.stringify({backup:{
         at:new Date().toISOString(), version:VERSION, device:navigator.userAgent.slice(0,60),
         students:Object.values(D.rosters).reduce((n,l)=>n+l.filter(s=>s.name).length,0),
-        records:D.records.length, snapshot:snap }})});
+        records:D.records.length, parts, len:snap.length, hash:hashStr(snap) }})});
     const out=await res.json();
     if(!out||out.ok!==true)throw new Error(out&&out.error||'伺服器沒說 ok');
-    if(out.backup===undefined)throw new Error('雲端要更新才支援備份');
+    if(out.parts!==parts.length)throw new Error('雲端沒有確認寫入的段數');
+    if((D.sync&&D.sync.url)!==url)throw new Error('途中換了網址，這份不算');
     D.sync.backupAt=Date.now();save();
-    if(!silent)toast('已備份到雲端');
+    if(!silent)toast(`已備份到雲端（${parts.length} 段）`);
+    render();
     return true;
   }catch(e){ if(!silent)toast('備份失敗：'+String(e.message||e).slice(0,28),1); return false }
 }
@@ -622,14 +730,16 @@ async function cloudRestore(){
   try{
     const r=await fetch(url+'?what=backups',{cache:'no-store'});
     const j=await r.json();
-    if(!j.ok||!j.rows)throw new Error('雲端要更新才支援還原');
+    if(j.version&&verLT(j.version,CLOUD_MIN))throw new Error(`雲端 v${j.version} 要更新到 ${CLOUD_MIN}`);
+    if(!j.ok||!j.rows)throw new Error(j.error||'雲端要更新才支援還原');
     if(!j.rows.length){toast('雲端沒有任何備份',1);return}
     sheet(`<h3>☁️ 從雲端還原<span>選一個時間點，會覆蓋這台手機目前的資料</span></h3>
       ${j.rows.slice().reverse().map((b,i)=>`<div class="row" data-i="${j.rows.length-1-i}">
         <b>${new Date(b[0]).toLocaleString('zh-TW')}</b>
         <span class="tag">v${b[1]}</span>
         <span class="tag">${b[3]} 人</span>
-        <span class="tag">${b[4]} 筆</span></div>`).join('')}
+        <span class="tag">${b[4]} 筆</span>
+        ${b[6]&&b[7]!==b[6]?'<span class="tag" style="color:#ff453a">不完整</span>':''}</div>`).join('')}
       <div style="color:var(--dim);font-size:12px;margin-top:8px;line-height:1.6">
         還原前會自動先備份目前狀態，選錯還能救回來。</div>
       <div class="closebar"><button data-close>取消</button></div>`,el=>{
@@ -637,20 +747,32 @@ async function cloudRestore(){
         const row=j.rows[+b.dataset.i];
         if(!confirm(`還原到 ${new Date(row[0]).toLocaleString('zh-TW')}？\n目前手機上的資料會被覆蓋。`))return;
         close();
-        await cloudBackup(true);                    // 先保住現況
+        /* 還原期間整個畫面鎖住。備份現況送出後若還能改名單或加分，
+           那些修改既不在安全備份裡，又會被還原蓋掉。 */
+        busy('♻️ 還原中，請不要操作…');
         try{
-          const o=JSON.parse(row[5]);
-          if(!o||!o.courses)throw new Error('備份內容不完整');
+          /* 順序很重要：先把要還原的那份抓回來、驗過，才去備份現況。
+             雲端只留最近幾份，先備份現況可能剛好把要還原的那份擠掉。 */
+          const br=await fetch(url+'?what=backup&at='+encodeURIComponent(row[0]),{cache:'no-store'});
+          const bj=await br.json();
+          if(!bj.ok)throw new Error(bj.error||'雲端讀不到這份備份');
+          const snap=bj.snapshot;
+          if(typeof snap!=='string'||!snap)throw new Error('備份是空的');
+          if(Number(bj.len)!==snap.length)throw new Error('備份長度不符，可能損毀');
+          if(String(bj.hash)!==hashStr(snap))throw new Error('備份檢查碼不符，可能損毀');
+          const o=JSON.parse(snap);
+          mergeRestore(D,o,DEFAULT);                 // 先試算一次：確定這份真的還原得起來，才往下做
+          /* 再保住現況。保不住就停下來問，不默默往下做。 */
+          if(!(await freshBackup())&&
+             !confirm('目前的資料沒能先備份到雲端。\n（記錄會合併保留，但名單與設定會換成備份當時的。）\n\n仍要還原嗎？'))return;
           /* 記錄用合併不用覆蓋：備份之後才打的分（例如資料被重設後那幾堂）不能丟 */
-          const cur=D.records||[], seen=new Set((o.records||[]).map(r=>r.t+'|'+r.no+'|'+r.name));
-          const extra=cur.filter(r=>!seen.has(r.t+'|'+r.no+'|'+r.name));
-          const merged={...structuredClone(DEFAULT),...o};
-          merged.records=(o.records||[]).concat(extra);
+          const m=mergeRestore(D,o,DEFAULT);
           /* 課程 id 若跟備份對不上（重設後是 c1/c2/c3），把多出來的記錄對到同名課程 */
-          D=migrate(merged);
+          D=migrate(m.merged);
           save();render();
-          toast(`已還原 ${(o.records||[]).length} 筆，另保留備份後新打的 ${extra.length} 筆`);
+          toast(`已還原 ${m.restored} 筆，另保留備份後新打的 ${m.extra} 筆`);
         }catch(e){toast('還原失敗：'+String(e.message||e).slice(0,28),1)}
+        finally{busy(null)}
       });
     });
   }catch(e){toast('讀不到備份：'+String(e.message||e).slice(0,28),1)}
@@ -872,20 +994,32 @@ function setupSync(){
     <button class="btn gray" data-now>⬆️ 立即同步（加分記錄）</button>
     <button class="btn gray" data-roster>👥 上傳名冊與分組</button>
     <button class="btn gray" data-bk>☁️ 立即備份全部</button>
-    <button class="btn" data-rs2>♻️ 從雲端還原（換手機用）</button>
-    <button class="btn gray" data-all>🔁 全部重新上傳（會重複，慎用）</button>
+    <details style="margin-top:14px">
+      <summary style="color:var(--dim);font-size:13px;padding:8px 2px">⚠️ 進階（平常上課用不到，換手機才需要）</summary>
+      <button class="btn gray" data-rs2>♻️ 從雲端還原</button>
+      <button class="btn gray" data-all>🔁 全部重新上傳</button>
+    </details>
     <div class="closebar"><button data-close>關閉</button></div>`,el=>{
     el.querySelector('[data-save]').onclick=()=>{
       const u=el.querySelector('#su').value.trim();
       if(u&&!/^https:\/\/script\.google\.com\//.test(u))return toast('要是 script.google.com 的網址',1);
-      D.sync={...(D.sync||{}),url:u};save();close();toast(u?'網址已存':'已清除網址');
+      /* 「已同步」是對原本那個網址說的。換了網址就全部重新核對一次，雲端會去重不會變兩筆。 */
+      const changed=u&&u!==((D.sync||{}).url||'');
+      if(changed){D.records.forEach(r=>{delete r.sy});syncGen++;}
+      D.sync={...(D.sync||{}),url:u};save();close();
+      toast(!u?'已清除網址':changed?'網址已存，會把全部記錄再核對一次':'網址已存');
+      if(changed)flushSync(true);
     };
     el.querySelector('[data-now]').onclick=()=>{close();flushSync(false)};
     el.querySelector('[data-roster]').onclick=()=>{close();uploadRoster()};
     el.querySelector('[data-bk]').onclick=()=>{close();cloudBackup(false)};
-    el.querySelector('[data-rs2]').onclick=()=>{close();cloudRestore()};
+    /* 還原會把名單、分組、設定換成備份當時的。要自己打字才會執行，手滑按到不會出事。 */
+    el.querySelector('[data-rs2]').onclick=()=>{
+      if(prompt('從雲端還原會把名單、分組和設定換成備份當時的樣子。\n平常上課用不到，換手機才需要。\n\n確定要做，請輸入「還原」兩個字：')!=='還原'){toast('已取消，什麼都沒動');return}
+      close();cloudRestore();
+    };
     el.querySelector('[data-all]').onclick=()=>{
-      if(!confirm('把全部記錄重新上傳一次？試算表會出現重複資料。'))return;
+      if(!confirm('把全部記錄重新上傳一次？\n雲端會略過已經有的，不會變成兩筆。'))return;
       D.records.forEach(r=>delete r.sy);save();close();flushSync(false);
     };
   });
@@ -893,14 +1027,14 @@ function setupSync(){
 
 /* 刪一筆記錄：本機刪掉，若已同步就通知雲端一起刪 */
 async function delRecord(rec){
-  D.records=D.records.filter(r=>!(r.t===rec.t&&r.no===rec.no&&r.item===rec.item));
+  D.records=D.records.filter(r=>!sameRecord(r,rec));
   save();render();
   buzz([12,30,12]);
   const url=D.sync&&D.sync.url;
   if(rec.sy&&url){
     try{
       const res=await fetch(url,{method:'POST',headers:{'Content-Type':'text/plain'},
-        body:JSON.stringify({del:[[rec.t,rec.no,rec.name]]})});
+        body:JSON.stringify({del:[[rec.t,rec.no,rec.name,rec.cls]]})});   // 帶班級，免得別班同鍵的記錄被一起刪
       const out=await res.json();
       // 舊版 Apps Script 不認得刪除指令，會回 ok 但沒 deleted → 不可當成功
       if(out&&out.ok&&typeof out.deleted==='number')
